@@ -46,6 +46,7 @@ type Agent struct {
 	forbidSelf  bool
 	changed     chan struct{} // closed and replaced on every service change
 	health      map[string][]*api.ServiceEntry
+	kv          map[string][]byte
 	index       uint64
 	queries     []url.Values
 }
@@ -57,6 +58,7 @@ func New(version string) *Agent {
 		services:    map[string]*api.AgentServiceRegistration{},
 		maintenance: map[string]string{},
 		health:      map[string][]*api.ServiceEntry{},
+		kv:          map[string][]byte{},
 		index:       1,
 		changed:     make(chan struct{}),
 	}
@@ -180,6 +182,8 @@ func (a *Agent) serve(w http.ResponseWriter, r *http.Request) {
 		a.setMaintenance(w, r, strings.TrimPrefix(p, "/v1/agent/service/maintenance/"))
 	case r.Method == http.MethodGet && strings.HasPrefix(p, "/v1/agent/service/"):
 		a.getService(w, r, strings.TrimPrefix(p, "/v1/agent/service/"))
+	case r.Method == http.MethodGet && strings.HasPrefix(p, "/v1/kv/"):
+		a.kvRead(w, r, strings.TrimPrefix(p, "/v1/kv/"))
 	case r.Method == http.MethodGet && strings.HasPrefix(p, "/v1/health/service/"):
 		a.healthService(w, r, strings.TrimPrefix(p, "/v1/health/service/"))
 	case r.Method == http.MethodPut && strings.HasPrefix(p, "/v1/agent/check/update/"):
@@ -417,4 +421,73 @@ func hasTags(have, want []string) bool {
 		}
 	}
 	return true
+}
+
+// PutKV stores a key and bumps the index.
+func (a *Agent) PutKV(key, value string) {
+	a.mu.Lock()
+	a.kv[key] = []byte(value)
+	a.index++
+	a.notifyLocked()
+	a.mu.Unlock()
+}
+
+// DeleteKV removes a key and bumps the index.
+func (a *Agent) DeleteKV(key string) {
+	a.mu.Lock()
+	delete(a.kv, key)
+	a.index++
+	a.notifyLocked()
+	a.mu.Unlock()
+}
+
+// kvRead implements GET /v1/kv/:prefix with ?recurse or ?keys and
+// index-based blocking. Like Consul, a prefix with no keys answers 404.
+func (a *Agent) kvRead(w http.ResponseWriter, r *http.Request, prefix string) {
+	q := r.URL.Query()
+	wait := 5 * time.Minute
+	if d, err := time.ParseDuration(q.Get("wait")); err == nil {
+		wait = d
+	}
+	want, _ := strconv.ParseUint(q.Get("index"), 10, 64)
+	deadline := time.NewTimer(wait)
+	defer deadline.Stop()
+	for {
+		a.mu.Lock()
+		idx, changed := a.index, a.changed
+		var keys []string
+		for k := range a.kv {
+			if strings.HasPrefix(k, prefix) {
+				keys = append(keys, k)
+			}
+		}
+		slices.Sort(keys)
+		pairs := make([]*api.KVPair, 0, len(keys))
+		for _, k := range keys {
+			pairs = append(pairs, &api.KVPair{Key: k, Value: slices.Clone(a.kv[k]), ModifyIndex: idx})
+		}
+		a.mu.Unlock()
+		if want == 0 || idx > want {
+			w.Header().Set("X-Consul-Index", strconv.FormatUint(idx, 10))
+			if len(keys) == 0 {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			var body []byte
+			if q.Has("keys") {
+				body, _ = json.Marshal(keys)
+			} else {
+				body, _ = json.Marshal(pairs)
+			}
+			writeJSON(w, string(body))
+			return
+		}
+		select {
+		case <-changed:
+		case <-deadline.C:
+			want = 0
+		case <-r.Context().Done():
+			return
+		}
+	}
 }
