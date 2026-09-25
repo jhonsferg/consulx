@@ -2,14 +2,14 @@
 
 ## Repository layout
 
-| Module | Path | Purpose |
-| ------ | ---- | ------- |
-| `github.com/jhonsferg/consulx` | `/` | the library |
-| `.../integration` | `integration/` | tests against real Consul agents (Testcontainers) |
-| `.../examples` | `examples/` | runnable examples |
-| `.../contrib/prometheus` | `contrib/prometheus/` | Prometheus metrics adapter |
-| `.../contrib/otel` | `contrib/otel/` | OpenTelemetry metrics and tracing |
-| `.../contrib/fiber` | `contrib/fiber/` | Fiber health endpoints |
+| Module                         | Path                  | Purpose                                           |
+|--------------------------------|-----------------------|---------------------------------------------------|
+| `github.com/jhonsferg/consulx` | `/`                   | the library                                       |
+| `.../integration`              | `integration/`        | tests against real Consul agents (Testcontainers) |
+| `.../examples`                 | `examples/`           | runnable examples                                 |
+| `.../contrib/prometheus`       | `contrib/prometheus/` | Prometheus metrics adapter                        |
+| `.../contrib/otel`             | `contrib/otel/`       | OpenTelemetry metrics and tracing                 |
+| `.../contrib/fiber`            | `contrib/fiber/`      | Fiber health endpoints                            |
 
 Every module except the root uses a `replace` directive pointing at the
 working copy, so changes are tested together.
@@ -64,7 +64,7 @@ docker run --rm -v "$PWD:/src" -w /src golang:1.27 go test -race ./...
 go test -run '^$' -fuzz FuzzParseConfig -fuzztime 30s .
 go test -run '^$' -fuzz FuzzBind -fuzztime 30s ./internal/bind
 go test -run '^$' -fuzz FuzzSanitize -fuzztime 30s ./internal/serviceid
-go test -run '^$' -fuzz FuzzSplitHostPort -fuzztime 30s ./internal/netaddr
+go test -run '^$' -fuzz FuzzParseListenAddress -fuzztime 30s ./internal/netaddr
 go test -run '^$' -fuzz FuzzParse -fuzztime 30s ./internal/compat
 ```
 
@@ -104,7 +104,19 @@ least-privilege token (and no token leak in logs), mutual TLS, discovery,
 watches and load balancing, layered KV configuration with live and rejected
 updates, and the net/http, Gin, Echo and Chi integrations.
 
+## CI and releases
+
+Pull requests, required checks, automatic versioning and publication are
+described in [release.md](release.md). Run the same static analysis locally:
+
+```sh
+golangci-lint run ./...   # uses .golangci.yml
+go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+```
+
 ## Commit conventions
 
-See the repository's contribution rules. Messages are in English, in the
-imperative mood, using `feat`, `fix`, `refactor`, `docs`, `style` or `chore`.
+Messages are in English, in the imperative mood, following Conventional
+Commits with the types `feat`, `fix`, `refactor`, `docs`, `style` and
+`chore`. Pull request titles use the same format, because squash merges turn
+them into the commit subject that drives versioning.
