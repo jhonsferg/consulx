@@ -79,3 +79,12 @@ func (l *Limiter) Wait(ctx context.Context) error {
 		return nil
 	}
 }
+
+// RequestTimeout bounds one blocking request: the requested wait, plus the
+// jitter Consul may add (up to wait/16), plus the normal request budget. A
+// blocking query that has not answered by then is treated as failed, so a
+// network partition that drops packets without resetting connections cannot
+// stall a watch.
+func RequestTimeout(wait, request time.Duration) time.Duration {
+	return wait + wait/16 + request
+}
