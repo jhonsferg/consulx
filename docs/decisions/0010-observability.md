@@ -32,5 +32,6 @@ every service.
 
 ## Consequences
 
-* The core module depends only on the official Consul client and yaml.v3.
+* The core module depends only on the official Consul client and
+  `go.yaml.in/yaml/v3` (the maintained continuation of `gopkg.in/yaml.v3`).
 * Adding an exporter means implementing three methods.
