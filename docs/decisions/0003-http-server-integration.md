@@ -18,7 +18,11 @@ scheme (http/https).
   `Service.Ports`, the listener passed with `WithListener`, `Server.Addr`
   (empty means `:http`, as in net/http). Port 0 requires `WithListener` or
   an explicit port, because the real port is only known after listening.
-* The scheme is https when `Server.TLSConfig` is set, unless configured.
+* The scheme is https when `Server.TLSConfig` is set **when `New` runs**,
+  unless configured. It must be decided before serving: `Server.Serve`
+  initialises `TLSConfig` itself for HTTP/2, so reading it later reports
+  https for plain HTTP servers and races with `Serve` (found by the
+  integration suite).
 * The address is never taken from a wildcard `Server.Addr` (`:8080`,
   `0.0.0.0`, `::`). It comes from an explicit value or from a resolver
   chain: `Service.AddressEnv`, a concrete server host, the local IP routing
