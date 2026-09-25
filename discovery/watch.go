@@ -80,6 +80,23 @@ func (w *Watch) Instances() []ServiceInstance {
 	return cloneAll(w.current)
 }
 
+// Pick calls pick with the current instances and returns an independent
+// copy of the instance it selects; ok is false when pick selects none. The
+// slice is an immutable snapshot: pick must not modify it, but may keep it,
+// because a newer state is published as a new slice. Unlike Instances, Pick
+// copies only the selected instance, so its cost does not grow with the
+// number of instances. The balancer uses it on every call.
+func (w *Watch) Pick(pick func([]ServiceInstance) (ServiceInstance, bool)) (ServiceInstance, bool) {
+	w.mu.RLock()
+	list := w.current
+	w.mu.RUnlock()
+	inst, ok := pick(list)
+	if !ok {
+		return ServiceInstance{}, false
+	}
+	return inst.clone(), true
+}
+
 // Ready is closed once the first successful response arrived.
 func (w *Watch) Ready() <-chan struct{} { return w.ready }
 
