@@ -6,6 +6,8 @@ contain breaking changes, always listed under "Breaking".
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-25
+
 ### Fixed
 
 - Health checks: a checker that ignores its context no longer leaves one
