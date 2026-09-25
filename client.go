@@ -40,6 +40,14 @@ type Client struct {
 	generatedID   string
 	healthChanged chan struct{} // wakes the TTL heartbeat
 
+	svc services
+	// bgCtx bounds background resources that are not runtime tasks
+	// (balancer watches). It is created in New and cancelled when the
+	// Client stops: a documented root context, since such resources can be
+	// created before Start.
+	bgCtx    context.Context
+	bgCancel context.CancelFunc
+
 	agentMu sync.Mutex
 	agent   compat.AgentInfo
 	hasInfo bool
@@ -78,6 +86,7 @@ func New(opts ...Option) (*Client, error) {
 		regHook:       s.regHook,
 		healthChanged: make(chan struct{}, 1),
 	}
+	c.bgCtx, c.bgCancel = context.WithCancel(context.Background())
 	c.scheme = c.detectScheme()
 	c.injectHealth()
 	if c.retry == nil {
