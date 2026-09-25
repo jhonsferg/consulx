@@ -2,6 +2,7 @@ package consulx
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"sync"
 )
@@ -149,14 +150,32 @@ func (c *Client) start(ctx context.Context) error {
 	if !*c.cfg.Lifecycle.AutoRegister {
 		return nil
 	}
-	ep, err := c.resolveEndpoint(ctx)
-	if err != nil {
+	// Configuration problems (no port, no usable address) fail Start
+	// whatever FailFast says: retrying cannot fix them.
+	if _, err := c.resolveEndpoint(ctx); err != nil {
 		return err
 	}
-	c.log.Info("service endpoint resolved",
-		slog.String("address", ep.Address), slog.String("address_source", ep.AddressSource),
-		slog.Int("port", ep.Port), slog.String("port_source", ep.PortSource),
-		slog.String("scheme", ep.Scheme))
+
+	if c.cfg.Lifecycle.FailFast {
+		sctx, cancel := context.WithTimeout(ctx, c.cfg.Lifecycle.StartTimeout)
+		err := c.registerWithRetry(sctx, true)
+		cancel()
+		if err != nil {
+			return err
+		}
+	} else if err := c.register(ctx); err != nil {
+		if errors.Is(err, ErrInvalidConfiguration) || errors.Is(err, ErrUnsupportedFeature) {
+			return err
+		}
+		c.log.Warn("initial registration failed, retrying in the background", slog.Any("error", err))
+		c.setDegraded()
+	}
+
+	c.goRuntime("registrar", c.runRegistrar)
+	if c.cfg.Health.Check == CheckTTL {
+		c.health.OnPush(c.notifyHealthChanged)
+		c.goRuntime("heartbeat", c.runHeartbeat)
+	}
 	return nil
 }
 
@@ -202,9 +221,15 @@ func (c *Client) Stop(ctx context.Context) error {
 	return err
 }
 
-// shutdown runs the ordered shutdown steps after the runtime has stopped.
-// Later phases add deregistration here.
-func (c *Client) shutdown(context.Context) error { return nil }
+// shutdown runs the ordered shutdown steps after the runtime has stopped:
+// deregistration, bounded by ctx. If it fails (Consul unreachable), the
+// DeregisterCriticalServiceAfter timeout removes the instance later.
+func (c *Client) shutdown(ctx context.Context) error {
+	if !*c.cfg.Lifecycle.DeregisterOnShutdown || c.reg.get().ServiceID == "" {
+		return nil
+	}
+	return c.deregister(ctx)
+}
 
 // finish moves to the terminal state and releases resources.
 func (c *Client) finish() {
