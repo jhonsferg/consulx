@@ -14,10 +14,11 @@ import (
 	"math"
 	"reflect"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 )
 
 // Error describes a value that could not be bound.
@@ -97,28 +98,52 @@ func (b *binder) spec(f reflect.StructField) fieldSpec {
 	return s
 }
 
-// normalize makes "MaxConns", "max-conns", "max_conns" and "maxconns" equal.
-func normalize(s string) string {
-	return strings.ToLower(strings.NewReplacer("-", "", "_", "", ".", "").Replace(s))
+// sameKey reports whether two names are equal ignoring case and the
+// separators "-", "_" and ".": "MaxConns", "max-conns" and "max_conns" are
+// the same key. It compares in place, without building normalised strings,
+// because it runs for every field and key during binding.
+func sameKey(a, b string) bool {
+	next := func(s string, i int) (rune, int) {
+		for i < len(s) {
+			r, size := utf8.DecodeRuneInString(s[i:])
+			i += size
+			if r != '-' && r != '_' && r != '.' {
+				return unicode.ToLower(r), i
+			}
+		}
+		return -1, i
+	}
+	i, j := 0, 0
+	for {
+		var ra, rb rune
+		ra, i = next(a, i)
+		rb, j = next(b, j)
+		if ra != rb {
+			return false
+		}
+		if ra == -1 {
+			return true
+		}
+	}
 }
 
-// lookup finds a key: exact match first, then normalised match.
+// lookup finds a key: exact match first, then normalised match. When several
+// keys normalise alike, the smallest one wins, so the result is deterministic.
 func lookup(tree map[string]any, name string) (string, any, bool) {
 	if v, ok := tree[name]; ok {
 		return name, v, true
 	}
-	n := normalize(name)
-	keys := make([]string, 0, len(tree))
+	found := false
+	var best string
 	for k := range tree {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys) // deterministic when several keys normalise alike
-	for _, k := range keys {
-		if normalize(k) == n {
-			return k, tree[k], true
+		if (!found || k < best) && sameKey(k, name) {
+			best, found = k, true
 		}
 	}
-	return "", nil, false
+	if !found {
+		return "", nil, false
+	}
+	return best, tree[best], true
 }
 
 func join(prefix, key string) string {
@@ -193,7 +218,7 @@ func matchesAnyField(t reflect.Type, key, tag string) bool {
 				name = n
 			}
 		}
-		if name == key || normalize(name) == normalize(key) {
+		if name == key || sameKey(name, key) {
 			return true
 		}
 	}
