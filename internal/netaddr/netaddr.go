@@ -12,10 +12,10 @@ import (
 	"strings"
 )
 
-// SplitHostPort parses a listen address such as ":8080", "0.0.0.0:80",
+// ParseListenAddress parses a listen address such as ":8080", "0.0.0.0:80",
 // "[::1]:8443" or "localhost:http". An empty address means ":http", as in
 // net/http. Named ports are resolved with net.LookupPort.
-func SplitHostPort(addr string) (host string, port int, err error) {
+func ParseListenAddress(ctx context.Context, addr string) (host string, port int, err error) {
 	if addr == "" {
 		addr = ":http"
 	}
@@ -28,7 +28,7 @@ func SplitHostPort(addr string) (host string, port int, err error) {
 	}
 	port, err = strconv.Atoi(p)
 	if err != nil {
-		port, err = net.LookupPort("tcp", p)
+		port, err = net.DefaultResolver.LookupPort(ctx, "tcp", p)
 		if err != nil {
 			return "", 0, err
 		}
@@ -79,7 +79,7 @@ func RouteIP(ctx context.Context, target string) (netip.Addr, error) {
 	if err != nil {
 		return netip.Addr{}, err
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	ua, ok := conn.LocalAddr().(*net.UDPAddr)
 	if !ok {
 		return netip.Addr{}, ErrNoAddress
@@ -182,4 +182,10 @@ func Select(ifs []Interface, f Filter) (netip.Addr, error) {
 		}
 	}
 	return netip.Addr{}, ErrNoAddress
+}
+
+// SplitHostPort is ParseListenAddress without a context. Deprecated: use
+// ParseListenAddress.
+func SplitHostPort(addr string) (string, int, error) {
+	return ParseListenAddress(context.Background(), addr)
 }
