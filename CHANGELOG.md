@@ -61,6 +61,8 @@ contain breaking changes, always listed under "Breaking".
   Docker Compose, Kubernetes, VMs, Enterprise) and full configuration,
   observability and error references. Every code sample is compiled
   against the real API.
+- Every diagram is Mermaid (README, architecture, release process); no ASCII
+  diagrams remain in the repository.
 
 ## [0.1.0] - 2026-09-25
 
