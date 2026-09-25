@@ -38,8 +38,8 @@ func quickRetry() consulx.Option {
 	return consulx.WithRetry(consulx.RetryConfig{InitialDelay: 200 * time.Millisecond, MaxDelay: time.Second})
 }
 
-// Scenario: application starts → service registered → appears in Consul →
-// health check passing → shutdown → deregistered.
+// Scenario: the application starts, the service is registered, appears in
+// Consul with a passing health check, and is deregistered on shutdown.
 func TestRegistrationLifecycleWithHTTPCheck(t *testing.T) {
 	a := startConsul(t)
 	name := uniqueName(t)
@@ -174,7 +174,8 @@ func TestConsulUnavailableAtStartup(t *testing.T) {
 	}
 }
 
-// Scenario: Consul up → down → retry → up (empty) → re-register.
+// Scenario: Consul goes down while the service runs, ConsulX retries, and
+// when the agent comes back without state the service is re-registered.
 func TestReconnectAndReRegister(t *testing.T) {
 	a := startConsul(t)
 	name := uniqueName(t)
