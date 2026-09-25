@@ -159,7 +159,11 @@ func TestValidationReportsEveryProblem(t *testing.T) {
 	if !errors.As(err, &target) {
 		t.Fatal("errors.As must find a *ConfigError")
 	}
-	for _, e := range err.(configErrors) {
+	var all configErrors
+	if !errors.As(err, &all) {
+		t.Fatal("errors.As must find the aggregated configErrors")
+	}
+	for _, e := range all {
 		fields[e.Field] = true
 	}
 	for _, f := range []string{"Service.Name", "Service.Port", "Health.Timeout", "Health.DeregisterCriticalServiceAfter"} {
@@ -311,8 +315,8 @@ lifecycle:
 }
 
 func TestParseConfigRejectsUnknownKeys(t *testing.T) {
-	_, err := ParseConfig([]byte("service:\n  nmae: typo\n"))
-	if !errors.Is(err, ErrInvalidConfiguration) || !strings.Contains(err.Error(), "nmae") {
+	_, err := ParseConfig([]byte("service:\n  nmme: typo\n"))
+	if !errors.Is(err, ErrInvalidConfiguration) || !strings.Contains(err.Error(), "nmme") {
 		t.Fatalf("got %v", err)
 	}
 }
