@@ -196,6 +196,10 @@ type HealthConfig struct {
 	Endpoints HealthEndpoints `json:"endpoints" yaml:"endpoints"`
 	// HideDetails omits per-component details from health responses.
 	HideDetails bool `json:"hideDetails" yaml:"hideDetails"`
+	// DegradedStatusCode is the HTTP status served for DEGRADED. Default 429,
+	// which Consul's HTTP check maps to "warning". Kubernetes probes treat
+	// 429 as a failure; use 200 if they share the endpoint.
+	DegradedStatusCode int `json:"degradedStatusCode" yaml:"degradedStatusCode"`
 
 	// Check is the Consul check type. Default CheckAuto.
 	Check CheckType `json:"check" yaml:"check"`
@@ -365,6 +369,7 @@ func (c *HealthConfig) overlay(s HealthConfig) {
 		c.Endpoints = s.Endpoints
 	}
 	set(&c.HideDetails, s.HideDetails)
+	set(&c.DegradedStatusCode, s.DegradedStatusCode)
 	set(&c.Check, s.Check)
 	set(&c.CheckPath, s.CheckPath)
 	set(&c.Interval, s.Interval)
@@ -589,6 +594,9 @@ func (c *Config) validate() error {
 		add("Health.CheckPath", "must start with '/'")
 	}
 	validateEndpoints(h, add)
+	if d := h.DegradedStatusCode; d != 0 && (d < 200 || d > 599) {
+		add("Health.DegradedStatusCode", "must be an HTTP status code between 200 and 599")
+	}
 	if h.Interval <= 0 {
 		add("Health.Interval", "must be positive")
 	}
