@@ -1,0 +1,62 @@
+name: Feature request
+description: Propose new functionality or an improvement.
+title: "feat: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the proposal. For large changes, agreeing on the design here before writing code saves everyone time.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do, and what is missing or hard today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: How should it work? An API sketch in Go is welcome.
+      render: go
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other approaches, including what you can do today with `Raw()` or options.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      multiple: true
+      options:
+        - Registration and lifecycle
+        - Health checks
+        - Discovery
+        - Load balancing
+        - Distributed configuration (KV)
+        - TLS or ACL
+        - Observability (logs, metrics, tracing)
+        - Framework integration
+        - contrib modules
+        - Documentation
+    validations:
+      required: true
+  - type: dropdown
+    id: compatibility
+    attributes:
+      label: Does it depend on a Consul version or edition?
+      options:
+        - No
+        - Yes, a specific Consul version
+        - Yes, Consul Enterprise
+        - I don't know
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: Contribution
+      options:
+        - label: I would like to implement this myself.
