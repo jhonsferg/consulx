@@ -100,20 +100,24 @@ call away through `Raw()`. It is modelled on the capabilities of Spring Cloud
 Consul, including its KV layout, expressed in plain Go: functional options,
 `context.Context`, `*http.Server`, `log/slog` and errors.
 
-```text
-            your service
-   ┌───────────────────────────────┐
-   │ *http.Server   your router    │
-   │        │                      │
-   │   ConsulX health endpoints    │◄──── HTTP check from the Consul agent
-   │        │                      │
-   │   consulx.Client  ────────────┼────► registration, heartbeats, watches
-   │   ├─ Discovery / Balancer ◄───┼───── healthy instances of other services
-   │   └─ Config (KV) ◄────────────┼───── layered configuration, live reload
-   └───────────────────────────────┘
-                   │  official consul/api client
-                   ▼
-            Consul agent (/v1)
+```mermaid
+flowchart LR
+    subgraph svc["Your service"]
+        server["*http.Server"]
+        health["ConsulX health endpoints<br/>/health · /health/live · /health/ready"]
+        router["Your router<br/>any http.Handler"]
+        client["consulx.Client"]
+        disc["Discovery and Balancer"]
+        cfg["Config from KV"]
+        server --> health --> router
+        client --- disc
+        client --- cfg
+    end
+    agent[("Consul agent<br/>HTTP API /v1")]
+    agent -- "HTTP or TTL health check" --> health
+    client -- "registration, heartbeats,<br/>re-registration" --> agent
+    agent -- "healthy instances<br/>blocking queries" --> disc
+    agent -- "layered configuration<br/>live reload" --> cfg
 ```
 
 ## 2. Features
@@ -232,12 +236,19 @@ A `consulx.Client` is created with `New`, which validates the configuration
 and performs **no network I/O**. The runtime starts with `Start` or `Run`
 and stops with `Stop` or when the `Run` context ends.
 
-```text
-idle ──Start──► starting ──registered──► running ◄─────────┐
-                    │                       │               │ recovered
-                    │ FailFast=false        ▼               │
-                    └──────────────────► degraded ──────────┘  (retrying)
-running / degraded ──ctx done or Stop──► stopping ──► stopped (Done closed)
+```mermaid
+stateDiagram-v2
+    [*] --> Idle: New
+    Idle --> Starting: Start or Run
+    Starting --> Running: registered
+    Starting --> Degraded: Consul unavailable, FailFast off
+    Starting --> Stopped: start failed
+    Running --> Degraded: Consul unavailable or service lost
+    Degraded --> Running: reconnected or re-registered
+    Running --> Stopping: ctx done or Stop
+    Degraded --> Stopping: ctx done or Stop
+    Stopping --> Stopped: deregistered, Done closed
+    Stopped --> [*]
 ```
 
 | Call | Behaviour |
