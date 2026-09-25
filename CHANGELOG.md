@@ -10,6 +10,11 @@ First release candidate (`v0.1.0`).
 
 ### Added
 
+- `balancer.WithStaleGrace` and `DefaultStaleGrace`: `Client.Balancer` keeps
+  the last known instances for 10 seconds when the passing list empties, as
+  happens for a few seconds after a Consul agent restart.
+- Explicit timeouts on every blocking query, and recovery that does not
+  depend on the cluster having a leader.
 - Client construction with functional options and `Config` values, layered
   over the environment (`CONSUL_*`, `CONSULX_*`) and YAML/JSON files
   (`LoadConfig`), with validation reporting every problem at once.
