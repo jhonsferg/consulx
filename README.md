@@ -422,4 +422,5 @@ registers (tag `v1`), and `config` reads the KV layout shown above, so run
 locally, the unit, race, fuzz and integration test suites, and the version
 matrix; CI and automatic releases are described in
 [docs/release.md](docs/release.md). Architecture: [docs/architecture.md](docs/architecture.md);
+performance and memory: [docs/performance.md](docs/performance.md);
 decisions: [docs/decisions/](docs/decisions/).
