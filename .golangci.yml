@@ -1,0 +1,40 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: standard # errcheck, govet, ineffassign, staticcheck, unused
+  enable:
+    - bodyclose      # HTTP response bodies are closed
+    - contextcheck   # contexts are propagated
+    - errorlint      # errors are compared with errors.Is/As
+    - gosec          # security issues
+    - misspell
+    - nilerr
+    - noctx          # HTTP requests carry a context
+    - unconvert
+    - whitespace
+  settings:
+    gosec:
+      excludes:
+        - G104 # unhandled errors: covered by errcheck with explicit `_ =`
+  exclusions:
+    generated: lax
+    rules:
+      # Tests may build requests without a context, use weak randomness and
+      # read files named by the test itself.
+      - path: _test\.go
+        linters: [noctx, gosec, contextcheck, bodyclose, errcheck]
+      # Examples favour brevity.
+      - path: ^examples/
+        linters: [noctx, gosec]
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/jhonsferg/consulx
