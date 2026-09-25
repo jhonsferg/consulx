@@ -78,6 +78,7 @@ func New(opts ...Option) (*Client, error) {
 		regHook:       s.regHook,
 		healthChanged: make(chan struct{}, 1),
 	}
+	c.scheme = c.detectScheme()
 	c.injectHealth()
 	if c.retry == nil {
 		r := s.cfg.Retry
