@@ -47,6 +47,29 @@ Legend: ✅ done and tested · 🟡 partially / with a caveat · ⬜ not done.
 | Errors documented             | ✅     | `errors.go`, README                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | Shutdown behaviour documented | ✅     | README Lifecycle, production guide                                                                                                                                                                                                                                                                                                                                                                                                          |
 
+## Production verification in a real cluster
+
+Performed on 2026-09-25 with Consul 1.22.7: three servers
+(`bootstrap-expect=3`), one client agent, two instances of a service and a
+caller balancing five requests per second to them, all as separate
+containers. No address was configured: every instance resolved its container
+IP through the route to the agent.
+
+| Scenario | Result |
+| -------- | ------ |
+| Leader failure and re-election | no effect: services stayed `running`, 0 failed calls |
+| Client agent restart (state kept) | `degraded`, reconnected in about 4 s; checks restart critical for 4 to 6 s (Consul behaviour), bridged by the balancer grace period |
+| Client agent recreated empty, with a new IP | services missing detected and re-registered within 5 s, 0 failed calls |
+| Network partition of one instance (25 s) | removed from passing, 1 failed call (the one in flight), recovered on reconnection |
+| SIGTERM (rolling deploy) | deregistered in 486 ms, clean exit, 0 failed calls |
+| SIGKILL (crash) | critical within 5 s, reaped after 93 s by `DeregisterCriticalServiceAfter` |
+| Consul completely down | balancers kept serving the last known instances |
+| 10 minute chaos soak (10 agent restarts, 4 leader restarts, 3 rolling deploys) | always back to `running`; goroutines flat (16 to 18 caller, 11 to 12 service); heap flat (1 to 3.3 MB) |
+| Balancer across 5 agent restarts | 173 failed calls (24%) without grace period, 0 with the 10 s default |
+
+The harness is not part of the repository; the scenarios can be reproduced
+with the steps in [development.md](development.md) and a Docker network.
+
 ## Known limitations
 
 - Health endpoints are injected in `New`; the server must not be serving
