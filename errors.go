@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/jhonsferg/consulx/discovery"
 )
 
 // Sentinel errors. Every error returned by ConsulX that belongs to one of
@@ -42,7 +44,8 @@ var (
 	ErrUnsupportedFeature = errors.New("consulx: unsupported feature")
 
 	// ErrServiceNotFound reports that no instance matched a discovery query.
-	ErrServiceNotFound = errors.New("consulx: service not found")
+	// It is the same value as discovery.ErrServiceNotFound.
+	ErrServiceNotFound = discovery.ErrServiceNotFound
 )
 
 // ConfigError describes an invalid configuration field. It matches
