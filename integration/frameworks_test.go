@@ -2,7 +2,6 @@ package integration
 
 import (
 	"io"
-	"net"
 	"net/http"
 	"testing"
 	"time"
@@ -48,10 +47,7 @@ func TestFrameworks(t *testing.T) {
 }
 
 func exerciseRouter(t *testing.T, a *agent, handler http.Handler) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
+	ln := listen(t)
 	srv := &http.Server{Handler: handler, ReadHeaderTimeout: 5 * time.Second}
 	svcName := uniqueName(t)
 	c, err := consulx.New(
@@ -67,7 +63,7 @@ func exerciseRouter(t *testing.T, a *agent, handler http.Handler) {
 	serve(t, srv, ln)
 	stop := runUntil(t, c.Run)
 
-	base := "http://" + ln.Addr().String()
+	base := localURL(ln)
 	for path, want := range map[string]int{"/orders": 200, "/health": 200, "/health/ready": 200, "/health/live": 200, "/nope": 404} {
 		resp, err := http.Get(base + path)
 		if err != nil {
