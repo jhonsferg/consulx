@@ -1,0 +1,3 @@
+# Default owner of every file. Review from a code owner is requested
+# automatically on pull requests.
+* @jhonsferg
