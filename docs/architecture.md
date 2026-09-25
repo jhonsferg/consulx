@@ -125,11 +125,11 @@ func (c *Client) Raw() *api.Client
 
 Differences from the conceptual API in the brief, with reasons:
 
-| Brief                                 | ConsulX                                    | Reason |
-| ------------------------------------- | ------------------------------------------ | ------ |
-| `consul := consulx.New(...)`          | `consul, err := consulx.New(...)`          | Invalid configuration must be reported, not panic. |
-| `consul.Config().Watch(ctx, &cfg)`    | `kvconfig.Watch[T](ctx, loader, ...)`      | Writing into a caller-owned struct from a watcher goroutine is a data race. The watcher publishes immutable `T` values instead; `Current()` returns the last accepted one. Methods cannot be generic in Go, hence a function. |
-| `consul.LoadBalancer(RoundRobin())`   | `consul.Balancer(balancer.RoundRobin())`   | Same shape; the `balancer` package keeps the root small. |
+| Brief                               | ConsulX                                  | Reason                                                                                                                                                                                                                        |
+|-------------------------------------|------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `consul := consulx.New(...)`        | `consul, err := consulx.New(...)`        | Invalid configuration must be reported, not panic.                                                                                                                                                                            |
+| `consul.Config().Watch(ctx, &cfg)`  | `kvconfig.Watch[T](ctx, loader, ...)`    | Writing into a caller-owned struct from a watcher goroutine is a data race. The watcher publishes immutable `T` values instead; `Current()` returns the last accepted one. Methods cannot be generic in Go, hence a function. |
+| `consul.LoadBalancer(RoundRobin())` | `consul.Balancer(balancer.RoundRobin())` | Same shape; the `balancer` package keeps the root small.                                                                                                                                                                      |
 
 Everything else keeps the brief's shape, including
 `consul.Discovery().Service("payments").Passing().Datacenter("dc1").All(ctx)`
@@ -323,16 +323,16 @@ Type, Err}`. All wrap causes with `%w`, compatible with `errors.Is/As`.
 
 ## 13. Testing strategy
 
-| Layer        | Tooling                                         | Covers |
-| ------------ | ----------------------------------------------- | ------ |
-| Unit         | `internal/fakeconsul` (httptest fake agent)     | options, config, IDs, resolver, handler wrapping, registration payloads, retry, discovery decoding, binding, lifecycle state machine |
-| Race         | `go test -race ./...` on every change           | all |
-| Leaks        | `go.uber.org/goleak` in `TestMain` of each package with goroutines | start, stop, cancel, retry, watch cancellation |
-| Integration  | separate module, Testcontainers-Go, real Consul | registration visible + passing, deregistration, DeregisterCriticalServiceAfter reaping, FailFast both modes, Consul down/up reconnect with re-registration, watches, KV config, TLS, ACL |
-| Version matrix | `CONSUL_VERSION=1.21 go test ./...` in `integration/`, CI matrix 1.20 / 1.21 / 1.22 / 2.0 | compat gate |
-| Fuzz         | `go test -fuzz`                                  | bind, address parsing, service ID sanitising, config parsing, health path matching |
-| Benchmarks   | `testing.B`                                      | binding, balancer `Next`, handler wrapper, metadata build |
-| Examples     | runnable `examples/` module, smoke-tested against Docker Consul | net/http, Gin, Echo, Chi, discovery, config, watch, TLS, ACL |
+| Layer          | Tooling                                                                                   | Covers                                                                                                                                                                                   |
+|----------------|-------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Unit           | `internal/fakeconsul` (httptest fake agent)                                               | options, config, IDs, resolver, handler wrapping, registration payloads, retry, discovery decoding, binding, lifecycle state machine                                                     |
+| Race           | `go test -race ./...` on every change                                                     | all                                                                                                                                                                                      |
+| Leaks          | `go.uber.org/goleak` in `TestMain` of each package with goroutines                        | start, stop, cancel, retry, watch cancellation                                                                                                                                           |
+| Integration    | separate module, Testcontainers-Go, real Consul                                           | registration visible + passing, deregistration, DeregisterCriticalServiceAfter reaping, FailFast both modes, Consul down/up reconnect with re-registration, watches, KV config, TLS, ACL |
+| Version matrix | `CONSUL_VERSION=1.21 go test ./...` in `integration/`, CI matrix 1.20 / 1.21 / 1.22 / 2.0 | compat gate                                                                                                                                                                              |
+| Fuzz           | `go test -fuzz`                                                                           | bind, address parsing, service ID sanitising, config parsing, health path matching                                                                                                       |
+| Benchmarks     | `testing.B`                                                                               | binding, balancer `Next`, handler wrapper, metadata build                                                                                                                                |
+| Examples       | runnable `examples/` module, smoke-tested against Docker Consul                           | net/http, Gin, Echo, Chi, discovery, config, watch, TLS, ACL                                                                                                                             |
 
 ## 14. Implementation status
 
