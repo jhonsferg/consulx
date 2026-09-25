@@ -45,6 +45,14 @@ contain breaking changes, always listed under "Breaking".
 - `TestNoLeakUnderChurn` guards against goroutine and heap growth on every
   build. See docs/performance.md.
 
+### Project
+
+- Release notes are generated from Conventional Commits, grouped by type,
+  with install instructions and links; contrib modules get their own
+  releases.
+- README badges for build, security, API reference, release, Go version,
+  licence and technologies.
+
 ## [0.1.0] - 2026-09-25
 
 First public release.
