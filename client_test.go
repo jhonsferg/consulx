@@ -194,3 +194,24 @@ func TestEffectiveConfigIsACopy(t *testing.T) {
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+// Regression: api.Config.WaitTime is added to every query by the official
+// client, so ConsulX must not set it; watches pass their own wait.
+func TestNonBlockingQueriesSendNoWait(t *testing.T) {
+	var query atomic.Value
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		query.Store(r.URL.RawQuery)
+		fmt.Fprint(w, `{"Config":{"Version":"1.22.7"}}`)
+	}))
+	defer srv.Close()
+	c, err := New(WithConsulAddress(srv.URL), WithAutoRegister(false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.AgentInfo(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if q, _ := query.Load().(string); strings.Contains(q, "wait=") {
+		t.Fatalf("non-blocking query carries a wait: %q", q)
+	}
+}
