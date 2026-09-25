@@ -41,6 +41,7 @@ type Client struct {
 	healthChanged chan struct{} // wakes the TTL heartbeat
 
 	svc services
+	kv  kvState
 	// bgCtx bounds background resources that are not runtime tasks
 	// (balancer watches). It is created in New and cancelled when the
 	// Client stops: a documented root context, since such resources can be
