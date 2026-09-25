@@ -64,3 +64,9 @@ func TestLimiterDisabled(t *testing.T) {
 		}
 	}
 }
+
+func TestRequestTimeout(t *testing.T) {
+	if got := RequestTimeout(16*time.Second, 10*time.Second); got != 27*time.Second {
+		t.Fatalf("got %v", got)
+	}
+}
