@@ -17,8 +17,8 @@ var (
 	// ErrAlreadyStarted is returned by Start when the Client was started before.
 	ErrAlreadyStarted = errors.New("consulx: already started")
 
-	// ErrAlreadyStopped is returned by Start or Stop when the Client has
-	// already been stopped. A Client is single-use.
+	// ErrAlreadyStopped is returned by Start when the Client has already been
+	// stopped. A Client is single-use. Stop itself is idempotent.
 	ErrAlreadyStopped = errors.New("consulx: already stopped")
 
 	// ErrNotStarted is returned by Stop when Start was never called.
