@@ -30,6 +30,7 @@ type Config struct {
 	Health    HealthConfig    `json:"health" yaml:"health"`
 	Retry     RetryConfig     `json:"retry" yaml:"retry"`
 	Lifecycle LifecycleConfig `json:"lifecycle" yaml:"lifecycle"`
+	KV        KVConfig        `json:"kv" yaml:"kv"`
 }
 
 // ConsulConfig describes how to reach the Consul agent.
@@ -94,6 +95,29 @@ const (
 	// IDRandom generates "<name>-<uuid>", unique on every start.
 	IDRandom IDStrategy = "random"
 )
+
+// KVConfig configures distributed configuration read from Consul KV (see
+// the kvconfig package). The layout is compatible with Spring Cloud Consul.
+type KVConfig struct {
+	// Name is the application context. Default Service.Name.
+	Name string `json:"name" yaml:"name"`
+	// Profiles are the active profiles, lowest precedence first. Default
+	// [Service.Environment] when an environment is set.
+	Profiles []string `json:"profiles" yaml:"profiles"`
+	// Prefix is the root folder. Default "config".
+	Prefix string `json:"prefix" yaml:"prefix"`
+	// DefaultContext is the folder shared by every application.
+	// Default "application".
+	DefaultContext string `json:"defaultContext" yaml:"defaultContext"`
+	// ProfileSeparator joins a context and a profile. Default ",".
+	ProfileSeparator string `json:"profileSeparator" yaml:"profileSeparator"`
+	// Format is "keyvalue" (default), "yaml" or "json".
+	Format string `json:"format" yaml:"format"`
+	// DataKey holds the document for yaml and json. Default "data".
+	DataKey string `json:"dataKey" yaml:"dataKey"`
+	// ErrorUnused reports keys that match no field, to catch typos.
+	ErrorUnused bool `json:"errorUnused" yaml:"errorUnused"`
+}
 
 // ServiceConfig describes the service registered in Consul.
 type ServiceConfig struct {
@@ -306,6 +330,7 @@ func (c *Config) overlay(src Config) {
 	c.Health.overlay(src.Health)
 	c.Retry.overlay(src.Retry)
 	c.Lifecycle.overlay(src.Lifecycle)
+	c.KV.overlay(src.KV)
 }
 
 func (c *ConsulConfig) overlay(s ConsulConfig) {
@@ -395,6 +420,17 @@ func (c *RetryConfig) overlay(s RetryConfig) {
 	set(&c.DisableJitter, s.DisableJitter)
 	set(&c.MaxAttempts, s.MaxAttempts)
 	set(&c.MaxElapsed, s.MaxElapsed)
+}
+
+func (c *KVConfig) overlay(s KVConfig) {
+	set(&c.Name, s.Name)
+	setSlice(&c.Profiles, s.Profiles)
+	set(&c.Prefix, s.Prefix)
+	set(&c.DefaultContext, s.DefaultContext)
+	set(&c.ProfileSeparator, s.ProfileSeparator)
+	set(&c.Format, s.Format)
+	set(&c.DataKey, s.DataKey)
+	set(&c.ErrorUnused, s.ErrorUnused)
 }
 
 func (c *LifecycleConfig) overlay(s LifecycleConfig) {
@@ -623,6 +659,12 @@ func (c *Config) validate() error {
 	}
 	if r.MaxAttempts < 0 || r.MaxElapsed < 0 {
 		add("Retry", "MaxAttempts and MaxElapsed must not be negative")
+	}
+
+	switch c.KV.Format {
+	case "", "keyvalue", "yaml", "json":
+	default:
+		add("KV.Format", `must be "keyvalue", "yaml" or "json"`)
 	}
 
 	l := c.Lifecycle
