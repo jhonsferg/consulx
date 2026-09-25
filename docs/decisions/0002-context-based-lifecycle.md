@@ -21,6 +21,13 @@ own signal handling and with orchestrators.
   failures without blocking.
 * Each goroutine has a documented purpose and exits when the runtime context
   is cancelled. Tests use goleak to prove it.
+* Runtime goroutines are tracked with `sync.WaitGroup.Go`, not `errgroup`.
+  errgroup cancels every task when one returns an error; ConsulX tasks are
+  independent and self-healing (they retry and report through `Errors()`),
+  so one failing task must not stop the others.
+* `Start(ctx)`: `ctx` bounds the start-up only. The runtime keeps the values
+  of `ctx` but not its cancellation (`context.WithoutCancel`) and ends on
+  `Stop`. `Run(ctx)` ties the runtime to `ctx`.
 * Deregistration happens after the caller's context was cancelled, so it
   uses `context.WithoutCancel(ctx)` bounded by `ShutdownTimeout`. This is
   the only detached context in ConsulX.
