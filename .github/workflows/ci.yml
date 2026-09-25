@@ -1,0 +1,166 @@
+name: CI
+
+# Runs on every pull request to main (validation before merge) and again on
+# main after the merge. The release workflow starts only when this workflow
+# and "Security" succeeded for the same commit on main.
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  GO_VERSION: "1.27"
+  GOLANGCI_LINT_VERSION: v2.14.0
+  # Minimum total statement coverage of the library packages.
+  COVERAGE_THRESHOLD: "80"
+
+jobs:
+  pr-title:
+    name: Conventional PR title
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    steps:
+      # Squash merges use the PR title as the commit subject, and the release
+      # workflow derives the next version from it.
+      - uses: amannn/action-semantic-pull-request@v6
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          types: |
+            feat
+            fix
+            refactor
+            docs
+            style
+            chore
+
+  lint:
+    name: Lint (${{ matrix.module }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module: [".", contrib/prometheus, contrib/otel, contrib/fiber, examples, integration]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: "**/go.sum"
+      - name: go mod tidy
+        working-directory: ${{ matrix.module }}
+        run: go mod tidy -diff
+      - name: go vet
+        working-directory: ${{ matrix.module }}
+        run: go vet ./...
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: ${{ env.GOLANGCI_LINT_VERSION }}
+          working-directory: ${{ matrix.module }}
+          args: --config=${{ github.workspace }}/.golangci.yml
+
+  test:
+    name: Unit tests (Go ${{ matrix.go }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Oldest supported (the official Consul client requires 1.26.7) and current.
+        go: ["1.26", "1.27"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ matrix.go }}
+          cache-dependency-path: "**/go.sum"
+      - name: Test with race detector and coverage
+        run: go test -race -count=1 -covermode=atomic -coverprofile=coverage.out ./...
+      - name: Test contrib modules
+        run: |
+          for m in contrib/prometheus contrib/otel contrib/fiber; do
+            (cd "$m" && go test -race -count=1 ./...) || exit 1
+          done
+      - name: Build examples
+        working-directory: examples
+        run: go build ./...
+      - name: Coverage gate
+        run: |
+          # The in-process fake agent is test infrastructure, not library code.
+          grep -v '/internal/fakeconsul/' coverage.out > coverage.lib.out
+          go tool cover -func=coverage.lib.out > coverage.txt
+          total=$(awk '/^total:/ {sub("%", "", $3); print $3}' coverage.txt)
+          {
+            echo "### Coverage (Go ${{ matrix.go }})"
+            echo
+            echo '```'
+            cat coverage.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "Total coverage: ${total}% (threshold ${COVERAGE_THRESHOLD}%)"
+          awk -v t="$total" -v min="$COVERAGE_THRESHOLD" 'BEGIN { exit (t + 0 < min + 0) }' \
+            || { echo "::error::coverage ${total}% is below ${COVERAGE_THRESHOLD}%"; exit 1; }
+      - uses: actions/upload-artifact@v7
+        if: matrix.go == '1.27'
+        with:
+          name: coverage
+          path: |
+            coverage.lib.out
+            coverage.txt
+
+  integration:
+    name: Integration (Consul ${{ matrix.consul }})
+    runs-on: ubuntu-latest
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        consul: ["1.20", "1.21", "1.22", "2.0"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: "**/go.sum"
+      - name: Pull Consul image
+        run: docker pull hashicorp/consul:${{ matrix.consul }}
+      - name: Integration tests against a real agent
+        working-directory: integration
+        env:
+          CONSUL_VERSION: ${{ matrix.consul }}
+        run: go test -count=1 -timeout 20m -v ./...
+
+  fuzz:
+    name: Fuzz
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: "**/go.sum"
+      - name: Fuzz targets (30s each)
+        run: |
+          set -e
+          go test -run '^$' -fuzz '^FuzzParseConfig$' -fuzztime 30s .
+          go test -run '^$' -fuzz '^FuzzBind$' -fuzztime 30s ./internal/bind
+          go test -run '^$' -fuzz '^FuzzSanitize$' -fuzztime 30s ./internal/serviceid
+          go test -run '^$' -fuzz '^FuzzParseListenAddress$' -fuzztime 30s ./internal/netaddr
+          go test -run '^$' -fuzz '^FuzzParse$' -fuzztime 30s ./internal/compat
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: fuzz-failures
+          path: "**/testdata/fuzz/**"
