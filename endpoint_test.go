@@ -133,6 +133,28 @@ func TestSchemeResolution(t *testing.T) {
 	}
 }
 
+// Regression: http.Server.Serve initialises TLSConfig for HTTP/2, which
+// made a plain HTTP server register as https (found by integration tests)
+// and raced with Serve.
+func TestSchemeIsDecidedBeforeServing(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := &http.Server{Handler: http.NotFoundHandler()}
+	c := newTestClient(t, WithServiceName("a"), WithServiceAddress("10.0.0.1"), WithServer(srv), WithListener(ln))
+	go func() { _ = srv.Serve(ln) }()
+	defer srv.Close()
+	// Let Serve run its HTTP/2 setup.
+	if resp, err := http.Get("http://" + ln.Addr().String()); err == nil {
+		resp.Body.Close()
+	}
+	ep, err := c.resolveEndpoint(t.Context())
+	if err != nil || ep.Scheme != "http" {
+		t.Fatalf("got %+v %v", ep, err)
+	}
+}
+
 func TestResolverHelpers(t *testing.T) {
 	if _, err := StaticAddress("").Resolve(t.Context()); !errors.Is(err, ErrAddressNotFound) {
 		t.Errorf("static empty: %v", err)
