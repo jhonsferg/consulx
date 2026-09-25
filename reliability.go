@@ -11,6 +11,7 @@ import (
 
 	"github.com/jhonsferg/consulx/health"
 	"github.com/jhonsferg/consulx/internal/backoff"
+	"github.com/jhonsferg/consulx/internal/blocking"
 )
 
 // minWatchInterval spaces blocking queries that return immediately, so an
@@ -54,6 +55,7 @@ func (c *Client) registerWithRetry(ctx context.Context, startup bool) error {
 // gives up (MaxAttempts/MaxElapsed), in which case the error is reported
 // and the instance stays unregistered.
 func (c *Client) runRegistrar(ctx context.Context) {
+	failures := 0 // consecutive failed watches; drives the backoff
 	for ctx.Err() == nil {
 		if !c.reg.get().Registered {
 			if err := c.registerWithRetry(ctx, false); err != nil {
@@ -68,9 +70,10 @@ func (c *Client) runRegistrar(ctx context.Context) {
 				c.log.Info("service re-registered", slog.String("service_id", c.reg.get().ServiceID))
 			}
 			c.setRunning()
+			failures = 0
 		}
 
-		err := c.watchRegistration(ctx)
+		err := c.watchRegistration(ctx, func() { failures = 0 })
 		switch {
 		case ctx.Err() != nil:
 			return
@@ -79,26 +82,34 @@ func (c *Client) runRegistrar(ctx context.Context) {
 			c.setDegraded()
 			c.log.Warn("service missing from agent, re-registering", slog.String("service_id", c.reg.get().ServiceID))
 		default:
-			c.waitUnavailable(ctx, err)
+			failures++
+			c.waitUnavailable(ctx, err, failures)
 		}
 	}
 }
 
 // watchRegistration blocks on the agent's view of the service until it
-// disappears (errServiceLost), a request fails, or ctx ends.
-func (c *Client) watchRegistration(ctx context.Context) error {
+// disappears (errServiceLost), a request fails, or ctx ends. healthy is
+// called after every successful response. Each request is bounded by
+// blocking.RequestTimeout, so a silent network partition surfaces as an
+// error instead of stalling the watch.
+func (c *Client) watchRegistration(ctx context.Context, healthy func()) error {
 	id := c.reg.get().ServiceID
+	timeout := blocking.RequestTimeout(c.cfg.Consul.WaitTime, c.cfg.Consul.RequestTimeout)
 	var hash string
 	for ctx.Err() == nil {
 		start := time.Now()
-		q := (&api.QueryOptions{WaitHash: hash, WaitTime: c.cfg.Consul.WaitTime}).WithContext(ctx)
+		rctx, cancel := context.WithTimeout(ctx, timeout)
+		q := (&api.QueryOptions{WaitHash: hash, WaitTime: c.cfg.Consul.WaitTime}).WithContext(rctx)
 		_, meta, err := c.api.Agent().Service(id, q)
+		cancel()
 		if err != nil {
 			if isStatus(err, http.StatusNotFound) {
 				return errServiceLost
 			}
 			return err
 		}
+		healthy()
 		if c.State() == StateDegraded {
 			c.metrics.IncCounter(MetricReconnectTotal)
 			c.log.Info("reconnection successful")
@@ -114,28 +125,22 @@ func (c *Client) watchRegistration(ctx context.Context) error {
 	return ctx.Err()
 }
 
-// waitUnavailable handles a failed watch: mark degraded, report, and wait
-// with backoff until the agent answers again.
-func (c *Client) waitUnavailable(ctx context.Context, cause error) {
+// waitUnavailable handles a failed watch: mark degraded, report the first
+// failure of an outage, and wait with backoff. The next watch request is the
+// probe: it goes to the local agent, so recovery does not depend on the
+// cluster having a leader.
+func (c *Client) waitUnavailable(ctx context.Context, cause error, attempt int) {
 	c.setDegraded()
-	c.log.Warn("consul unavailable", slog.Any("error", cause))
-	c.report(c.opError(nil, cause))
-	for attempt := 1; ctx.Err() == nil; attempt++ {
-		delay, ok := c.retry.NextDelay(attempt)
-		if !ok {
-			delay = c.cfg.Retry.MaxDelay
-		}
-		c.log.Debug("retry scheduled", slog.Int("attempt", attempt), slog.Duration("delay", delay))
-		if backoff.Sleep(ctx, delay) != nil {
-			return
-		}
-		pctx, cancel := c.requestContext(ctx)
-		_, err := c.api.Status().LeaderWithQueryOptions((&api.QueryOptions{}).WithContext(pctx))
-		cancel()
-		if err == nil {
-			return // the watch resumes and detects whether re-registration is needed
-		}
+	if attempt == 1 {
+		c.log.Warn("consul unavailable", slog.Any("error", cause))
+		c.report(c.opError(nil, cause))
 	}
+	delay, ok := c.retry.NextDelay(attempt)
+	if !ok {
+		delay = c.cfg.Retry.MaxDelay
+	}
+	c.log.Debug("retry scheduled", slog.Int("attempt", attempt), slog.Duration("delay", delay), slog.Any("error", cause))
+	_ = backoff.Sleep(ctx, delay)
 }
 
 // runHeartbeat is the runtime task for TTL checks.
