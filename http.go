@@ -91,6 +91,20 @@ func (c *Client) healthMux(next http.Handler) *healthMux {
 	return &healthMux{routes: routes, next: next}
 }
 
+// detectScheme decides the registered scheme. It runs in New, before the
+// server starts: http.Server.Serve initialises TLSConfig itself (HTTP/2
+// setup), so reading it later would both race with Serve and wrongly report
+// https for a plain HTTP server.
+func (c *Client) detectScheme() string {
+	if s := c.cfg.Service.Scheme; s != "" {
+		return s
+	}
+	if c.server != nil && c.server.TLSConfig != nil {
+		return "https"
+	}
+	return "http"
+}
+
 // injectHealth wraps the server handler when health endpoints are enabled.
 // A nil handler means http.DefaultServeMux, exactly as net/http does; the
 // mux itself is captured, so routes registered on it later still work.
