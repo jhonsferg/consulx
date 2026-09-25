@@ -7,7 +7,7 @@ import (
 	"io"
 	"os"
 
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 )
 
 // LoadConfig reads a YAML or JSON configuration file and overlays the
@@ -18,7 +18,7 @@ import (
 // Unknown keys are rejected to surface typos. Durations are written as Go
 // duration strings ("10s", "1m30s").
 func LoadConfig(path string) (Config, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) // #nosec G304 -- the caller chooses its own configuration file
 	if err != nil {
 		return Config{}, fmt.Errorf("consulx: read config file: %w", err)
 	}
