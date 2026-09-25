@@ -1,0 +1,108 @@
+name: Bug report
+description: Report something that does not work as documented.
+title: "bug: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a problem.
+        **Security issues must not be reported here**: follow the [security policy](https://github.com/jhonsferg/consulx/security/policy).
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: A clear description of the problem.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect to happen?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: How can we reproduce it?
+      description: A minimal program, configuration and steps. Remove tokens and other secrets.
+      render: go
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs and errors
+      description: Relevant ConsulX logs (with `slog` at debug level if possible) and error messages.
+      render: text
+  - type: input
+    id: consulx-version
+    attributes:
+      label: ConsulX version
+      placeholder: v0.2.0
+    validations:
+      required: true
+  - type: dropdown
+    id: consul-version
+    attributes:
+      label: Consul version
+      options:
+        - "2.0.x"
+        - "1.22.x"
+        - "1.21.x"
+        - "1.20.x"
+        - older than 1.20 (unsupported)
+        - other
+    validations:
+      required: true
+  - type: dropdown
+    id: consul-edition
+    attributes:
+      label: Consul edition
+      options:
+        - Community Edition
+        - Enterprise
+    validations:
+      required: true
+  - type: input
+    id: go-version
+    attributes:
+      label: Go version
+      placeholder: go1.27.1
+    validations:
+      required: true
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Environment
+      multiple: true
+      options:
+        - Kubernetes
+        - Docker or Docker Compose
+        - Virtual machine or bare metal
+        - Local development
+        - other
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      multiple: true
+      options:
+        - Registration and lifecycle
+        - Health checks
+        - Discovery
+        - Load balancing
+        - Distributed configuration (KV)
+        - TLS or ACL
+        - Observability (logs, metrics, tracing)
+        - contrib modules
+        - Documentation
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched the existing issues and this is not a duplicate.
+          required: true
+        - label: I removed tokens, certificates and other secrets from this report.
+          required: true
