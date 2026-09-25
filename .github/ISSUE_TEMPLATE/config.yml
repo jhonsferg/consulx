@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/jhonsferg/consulx/security/advisories/new
+    about: Report security problems privately. Never open a public issue for them.
+  - name: Documentation
+    url: https://github.com/jhonsferg/consulx#readme
+    about: Usage guide, use cases, configuration reference and deployment guides.
+  - name: API reference
+    url: https://pkg.go.dev/github.com/jhonsferg/consulx
+    about: Package documentation on pkg.go.dev.

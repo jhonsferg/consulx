@@ -1,0 +1,23 @@
+name: Documentation
+description: Report missing, unclear or wrong documentation.
+title: "docs: "
+labels: ["documentation"]
+body:
+  - type: input
+    id: location
+    attributes:
+      label: Where?
+      description: Link to the file, section or godoc.
+      placeholder: https://github.com/jhonsferg/consulx#75-distributed-configuration
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What is wrong or missing?
+    validations:
+      required: true
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggested improvement

@@ -1088,6 +1088,10 @@ Details and methodology: [docs/performance.md](docs/performance.md).
 | [docs/release.md](docs/release.md) | CI, security scanning and automatic releases |
 | [docs/decisions/](docs/decisions/) | architecture decision records |
 | [examples/](examples/) | runnable programs: basic, gin, echo, chi, discovery, config, health |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | how to propose changes, checks, commit and pull request conventions |
+| [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | community standards (Contributor Covenant 2.1) |
+| [SECURITY.md](SECURITY.md) | supported versions and private vulnerability reporting |
+| [.github/SUPPORT.md](.github/SUPPORT.md) | where to ask questions and report problems |
 
 ## 15. Development
 
@@ -1097,10 +1101,12 @@ go test -race ./...                                   # race detector
 cd integration && CONSUL_VERSION=1.22 go test ./...   # real Consul via Testcontainers
 ```
 
-Pull requests use Conventional Commits; releases are automatic once CI and
-security scans pass on `main`, and only changes to Go files publish a new
-version. See [docs/development.md](docs/development.md) and
-[docs/release.md](docs/release.md).
+Contributions are welcome: read [CONTRIBUTING.md](CONTRIBUTING.md) and the
+[Code of Conduct](CODE_OF_CONDUCT.md), and report security problems privately
+as described in [SECURITY.md](SECURITY.md). Pull requests use Conventional
+Commits; releases are automatic once CI and security scans pass on `main`, and
+only changes to Go files publish a new version. See
+[docs/development.md](docs/development.md) and [docs/release.md](docs/release.md).
 
 ## 16. License
 
