@@ -4,12 +4,14 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"sync"
 
 	"github.com/hashicorp/consul/api"
 
+	"github.com/jhonsferg/consulx/health"
 	"github.com/jhonsferg/consulx/internal/backoff"
 	"github.com/jhonsferg/consulx/internal/compat"
 )
@@ -23,6 +25,13 @@ type Client struct {
 	log       *slog.Logger
 	metrics   Metrics
 	retry     RetryPolicy
+
+	server   *http.Server
+	listener net.Listener
+	resolver AddressResolver
+	health   *health.Registry
+
+	lc lifecycle
 
 	agentMu sync.Mutex
 	agent   compat.AgentInfo
@@ -52,6 +61,13 @@ func New(opts ...Option) (*Client, error) {
 		log:       s.logger.With(slog.String("component", "consulx")),
 		metrics:   s.metrics,
 		retry:     s.retry,
+		server:    s.server,
+		listener:  s.listener,
+		resolver:  s.resolver,
+		// Checkers get 80% of the Consul check timeout, so the aggregated
+		// response is written before Consul gives up on the request.
+		health: health.NewRegistry(s.cfg.Health.Timeout * 4 / 5),
+		lc:     newLifecycle(),
 	}
 	if c.retry == nil {
 		r := s.cfg.Retry
