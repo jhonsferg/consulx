@@ -28,6 +28,7 @@ const (
 
 var stateNames = [...]string{"idle", "starting", "running", "degraded", "stopping", "stopped"}
 
+// String returns the lower-case state name, e.g. "running".
 func (s State) String() string {
 	if s >= 0 && int(s) < len(stateNames) {
 		return stateNames[s]
