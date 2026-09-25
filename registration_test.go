@@ -478,3 +478,20 @@ func TestRegistrationFieldsAreClassified(t *testing.T) {
 		}
 	}
 }
+
+// A partition that drops packets must not stall the registration watch:
+// each blocking request is bounded, the runtime turns degraded, and it
+// recovers when the agent answers again.
+func TestSilentPartitionIsDetected(t *testing.T) {
+	a := fakeAgent(t, "1.22.7")
+	c := agentClient(t, a, Config{Consul: ConsulConfig{WaitTime: 200 * time.Millisecond, RequestTimeout: 200 * time.Millisecond}})
+	if err := c.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	defer stop(t, c)
+
+	a.SetHanging(true)
+	eventually(t, "degraded during partition", func() bool { return c.State() == StateDegraded })
+	a.SetHanging(false)
+	eventually(t, "recovered after partition", func() bool { return c.State() == StateRunning })
+}
