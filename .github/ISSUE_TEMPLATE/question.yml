@@ -1,0 +1,28 @@
+name: Question
+description: Ask how to use ConsulX.
+title: "question: "
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please check the [README](https://github.com/jhonsferg/consulx#readme), the [use cases](https://github.com/jhonsferg/consulx#8-use-cases) and the [examples](https://github.com/jhonsferg/consulx/tree/main/examples) first.
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      description: What do you want to achieve?
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: What have you tried?
+      description: Relevant code or configuration, without secrets.
+      render: go
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: ConsulX, Go and Consul versions.
+      placeholder: consulx v0.2.0, go1.27.1, Consul 1.22.7
