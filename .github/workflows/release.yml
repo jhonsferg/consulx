@@ -1,18 +1,21 @@
 name: Release
 
 # Automatic release after a merge to main, once every required workflow
-# passed for that commit:
+# passed for that commit. The full flow is drawn in docs/release.md:
 #
-#   PR → CI + Security on the PR → merge → CI + Security on main
-#     → (this workflow) version, tags, GitHub release → pkg.go.dev
+#   1. A pull request passes CI and Security and is merged into main.
+#   2. CI and Security run again on main.
+#   3. This workflow computes the version, creates the tags, the GitHub
+#      releases and notifies proxy.golang.org, which feeds pkg.go.dev.
 #
-# The next version is derived from Conventional Commit subjects since the
-# last tag of each module:
-#   feat                     → minor
-#   fix, refactor            → patch
-#   "!" or BREAKING CHANGE   → major (minor while the module is v0)
-#   docs, style, chore only  → no release
-#   commits that touch no Go file (*.go, go.mod, go.sum) → no release
+# The next version is derived from the Conventional Commit subjects since
+# the last tag of each module, counting only commits that change Go files
+# (*.go, go.mod, go.sum):
+#   - feat: minor version
+#   - fix, refactor: patch version
+#   - "!" after the type or a BREAKING CHANGE footer: major version
+#     (minor while the module is v0)
+#   - docs, style, chore, or no Go file changed: no release
 on:
   workflow_run:
     workflows: [CI, Security]
