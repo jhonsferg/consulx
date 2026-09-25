@@ -6,7 +6,30 @@ contain breaking changes, always listed under "Breaking".
 
 ## [Unreleased]
 
-First release candidate (`v0.1.0`).
+### Fixed
+
+- `kvconfig.Watch` reports a rejected configuration state once instead of
+  once per watched folder: every folder wakes on a write, and a folder
+  without keys used to rebuild and re-report an unchanged configuration.
+  Signals queued while a reload runs are coalesced into that reload.
+  Deduplication compares the configuration read from Consul, so two
+  different invalid values are both reported even when they fail with the
+  same message.
+- A reload that cannot read Consul is logged as
+  `configuration reload failed`, not as `configuration rejected`: only a
+  configuration that was read and refused is rejected.
+- `examples/basic` registers the `v1` tag that `examples/discovery` looks
+  up, so the two examples work together out of the box;
+  `examples/config` writes the value meant to be rejected to the profile
+  layer (the layer without a profile is shadowed), labels failed reloads
+  separately from rejected changes, and stops selecting on a closed
+  `Errors()` channel.
+- Documentation: the Docker command quotes `-client=0.0.0.0`, which
+  PowerShell otherwise splits at the dots.
+
+## [0.1.0] - 2026-09-25
+
+First public release.
 
 ### Added
 
