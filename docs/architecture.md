@@ -146,9 +146,10 @@ and `First(ctx)`.
 
 `AddressResolver` is an interface; the default is a chain, first success wins:
 
-1. Explicit `Service.Address` / `WithServiceAddress`.
-2. Environment variable named by config (default `CONSULX_SERVICE_ADDRESS`;
-   Kubernetes users map `status.podIP` into it via the Downward API).
+1. Explicit `Service.Address` / `WithServiceAddress` (also fed by the
+   `CONSULX_SERVICE_ADDRESS` environment layer).
+2. The environment variable named by `Service.AddressEnv`, e.g. `POD_IP`
+   populated from `status.podIP` by the Kubernetes Downward API.
 3. Host from `server.Addr` when it is a concrete, non-wildcard IP.
 4. Route to Consul: the local IP the kernel would use to reach the Consul
    address (UDP "connect", no packets sent). Works in Docker, Compose, pods
@@ -223,11 +224,13 @@ Running/Degraded ─ctx done or Stop─► Stopping ─► Stopped (Done closed)
 
 ## 7. Retry
 
-`RetryConfig{InitialDelay: 500ms, MaxDelay: 30s, Multiplier: 2, Jitter: Full,
-MaxAttempts: 0 (unlimited), AttemptTimeout: 10s}`. Full jitter is used to
-avoid synchronised reconnect storms when many instances lose the same agent.
-Every wait selects on the context. `RetryPolicy` is an interface so users can
-plug their own.
+`RetryConfig{InitialDelay: 500ms, MaxDelay: 30s, Multiplier: 2, jitter on,
+MaxAttempts: 0 (unlimited), MaxElapsed: 0 (unlimited)}`. Each attempt is
+bounded by `Consul.RequestTimeout`. Jitter is "equal jitter": a delay `d`
+becomes a uniform value in `[d/2, d]`. It spreads reconnects of many
+instances that lost the same agent, like full jitter, but never produces
+near-zero waits that would turn an outage into a hot loop. Every wait selects
+on the context. `RetryPolicy` is an interface so users can plug their own.
 
 ## 8. Discovery and load balancing
 
