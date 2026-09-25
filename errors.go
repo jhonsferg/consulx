@@ -57,6 +57,7 @@ type ConfigError struct {
 	Reason string
 }
 
+// Error implements error.
 func (e *ConfigError) Error() string {
 	return fmt.Sprintf("consulx: invalid configuration: %s: %s", e.Field, e.Reason)
 }
@@ -75,6 +76,7 @@ type UnsupportedFeatureError struct {
 	Agent string
 }
 
+// Error implements error.
 func (e *UnsupportedFeatureError) Error() string {
 	return fmt.Sprintf("consulx: unsupported feature: %s requires %s, agent is %s",
 		e.Feature, e.Requirement, e.Agent)
