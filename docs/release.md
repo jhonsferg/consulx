@@ -60,6 +60,17 @@ first release) and keep a `replace ../../` directive for local development;
 consumers ignore `replace`. When a contrib module needs a newer core
 feature, raise its `require` in the same pull request.
 
+### Release notes
+
+Each release gets notes generated from the Conventional Commit subjects of
+its module since the previous tag: an install command, a pkg.go.dev link,
+sections for breaking changes, features, bug fixes, refactoring and
+performance and documentation (with commit links), a count of maintenance
+commits and a comparison link. With squash merges the subjects are pull
+request titles, which GitHub links to their pull requests, so descriptive
+PR titles give descriptive release notes. Contrib modules get their own
+releases, never marked as latest.
+
 Only the tip of `main` is released: if several merges land quickly, the
 newest commit is released and includes the earlier changes.
 
