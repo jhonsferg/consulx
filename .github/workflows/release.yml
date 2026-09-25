@@ -12,6 +12,7 @@ name: Release
 #   fix, refactor            → patch
 #   "!" or BREAKING CHANGE   → major (minor while the module is v0)
 #   docs, style, chore only  → no release
+#   commits that touch no Go file (*.go, go.mod, go.sum) → no release
 on:
   workflow_run:
     workflows: [CI, Security]
@@ -104,12 +105,14 @@ jobs:
           }
 
           created=()
-          # Root module: everything except other modules, docs and CI files.
+          # Root module: its Go files, outside the other modules.
           last=$(git tag --list 'v[0-9]*' --sort=-v:refname | head -1)
           range=${last:+$last..}HEAD
-          version=$(next_version "${last:-v0.0.0}" "$range" . \
-            ':(exclude)contrib' ':(exclude)examples' ':(exclude)integration' \
-            ':(exclude)docs' ':(exclude).github' ':(exclude)*.md')
+          # Only Go sources and module files reach users through `go get`:
+          # documentation, CI and tooling changes never trigger a release.
+          version=$(next_version "${last:-v0.0.0}" "$range" \
+            '*.go' go.mod go.sum \
+            ':(exclude)contrib' ':(exclude)examples' ':(exclude)integration')
           if [ -n "$version" ]; then
             git tag -a "$version" -m "consulx $version"
             created+=("$version")
@@ -122,7 +125,7 @@ jobs:
             last=$(git tag --list "$m/v[0-9]*" --sort=-v:refname | head -1)
             range=${last:+$last..}HEAD
             last_version=${last#"$m/"}
-            version=$(next_version "${last_version:-v0.0.0}" "$range" "$m")
+            version=$(next_version "${last_version:-v0.0.0}" "$range" "$m/*.go" "$m/go.mod" "$m/go.sum")
             if [ -n "$version" ]; then
               git tag -a "$m/$version" -m "$m $version"
               created+=("$m/$version")
