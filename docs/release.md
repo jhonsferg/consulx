@@ -3,18 +3,21 @@
 ## Flow
 
 ```text
-branch ──► pull request ──► CI + Security (on the PR) ──► review ──► squash merge
+branch ──► pull request ──► CI + Security (on the PR) ──► review ──► merge commit
                                                                          │
                          pkg.go.dev ◄── proxy.golang.org ◄── Release ◄── CI + Security (on main)
 ```
 
 1. Every change is made on a branch (`feat/...`, `fix/...`).
-2. A pull request to `main` is opened. Its **title must follow Conventional
-   Commits** (`feat: ...`, `fix(discovery): ...`); squash merging turns it
-   into the commit subject used for versioning.
+2. A pull request to `main` is opened. Its commits and its **title follow
+   Conventional Commits** (`feat: ...`, `fix(discovery): ...`): the commit
+   subjects drive versioning and release notes.
 3. `CI` and `Security` run on the pull request. Branch protection requires
    them before merging.
-4. After review, the pull request is squash-merged into `main`.
+4. After review, the pull request is merged into `main` with a merge commit
+   whose subject is `chore: merge pull request #N ...`, so the individual
+   commits (one per file) reach `main` unchanged and the merge itself never
+   bumps the version.
 5. `CI` and `Security` run again on `main`.
 6. When both succeeded for the merged commit, `Release` computes the next
    version, tags every module that changed and creates the GitHub release.
@@ -66,9 +69,9 @@ Each release gets notes generated from the Conventional Commit subjects of
 its module since the previous tag: an install command, a pkg.go.dev link,
 sections for breaking changes, features, bug fixes, refactoring and
 performance and documentation (with commit links), a count of maintenance
-commits and a comparison link. With squash merges the subjects are pull
-request titles, which GitHub links to their pull requests, so descriptive
-PR titles give descriptive release notes. Contrib modules get their own
+commits and a comparison link. Merge commits keep every commit, so the
+notes list each change; if a pull request is squash-merged instead, its
+title becomes the single entry, which GitHub links to the pull request. Contrib modules get their own
 releases, never marked as latest.
 
 Only the tip of `main` is released: if several merges land quickly, the
@@ -83,8 +86,9 @@ newest commit is released and includes the earlier changes.
      `Integration (Consul ...)`, `Fuzz`, `CodeQL`, `govulncheck`, `gosec`,
      `Secret scanning (gitleaks)`, `Dependency review`;
    - require branches to be up to date; block force pushes and deletions.
-2. **Merge settings** (Settings → General): allow squash merging only,
-   default commit message "Pull request title".
+2. **Merge settings** (Settings → General): allow merge commits (preferred:
+   they preserve the per-file commits); squash merging also works, with the
+   pull request title as the commit message.
 3. **Actions permissions** (Settings → Actions → General): allow
    `github-actions[bot]` to create tags (workflow permissions "Read and
    write", or keep read-only and rely on the `contents: write` permission
