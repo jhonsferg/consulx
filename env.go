@@ -14,8 +14,8 @@ import (
 // unchanged. Service settings use the CONSULX_ prefix.
 const (
 	EnvConsulAddr      = "CONSUL_HTTP_ADDR"
-	EnvConsulToken     = "CONSUL_HTTP_TOKEN"
-	EnvConsulTokenFile = "CONSUL_HTTP_TOKEN_FILE"
+	EnvConsulToken     = "CONSUL_HTTP_TOKEN"      // #nosec G101 -- variable name, not a credential
+	EnvConsulTokenFile = "CONSUL_HTTP_TOKEN_FILE" // #nosec G101 -- variable name, not a credential
 	EnvConsulAuth      = "CONSUL_HTTP_AUTH"
 	EnvConsulSSL       = "CONSUL_HTTP_SSL"
 	EnvConsulSSLVerify = "CONSUL_HTTP_SSL_VERIFY"
