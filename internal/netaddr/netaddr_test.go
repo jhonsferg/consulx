@@ -1,11 +1,12 @@
 package netaddr
 
 import (
+	"errors"
 	"net/netip"
 	"testing"
 )
 
-func TestSplitHostPort(t *testing.T) {
+func TestParseListenAddress(t *testing.T) {
 	tests := []struct {
 		in   string
 		host string
@@ -19,24 +20,24 @@ func TestSplitHostPort(t *testing.T) {
 		{"10.0.0.5:0", "10.0.0.5", 0},
 	}
 	for _, tt := range tests {
-		host, port, err := SplitHostPort(tt.in)
+		host, port, err := ParseListenAddress(t.Context(), tt.in)
 		if err != nil || host != tt.host || port != tt.port {
-			t.Errorf("SplitHostPort(%q) = %q %d %v", tt.in, host, port, err)
+			t.Errorf("ParseListenAddress(%q) = %q %d %v", tt.in, host, port, err)
 		}
 	}
 	for _, bad := range []string{"8080", "host:", "host:99999", "host:notaport"} {
-		if _, _, err := SplitHostPort(bad); err == nil {
-			t.Errorf("SplitHostPort(%q) should fail", bad)
+		if _, _, err := ParseListenAddress(t.Context(), bad); err == nil {
+			t.Errorf("ParseListenAddress(%q) should fail", bad)
 		}
 	}
 }
 
-func FuzzSplitHostPort(f *testing.F) {
+func FuzzParseListenAddress(f *testing.F) {
 	for _, s := range []string{":8080", "[::1]:1", "a:b", ""} {
 		f.Add(s)
 	}
 	f.Fuzz(func(t *testing.T, s string) {
-		if _, port, err := SplitHostPort(s); err == nil && (port < 0 || port > 65535) {
+		if _, port, err := ParseListenAddress(t.Context(), s); err == nil && (port < 0 || port > 65535) {
 			t.Fatalf("port %d out of range for %q", port, s)
 		}
 	})
@@ -112,7 +113,7 @@ func TestSelect(t *testing.T) {
 			t.Errorf("%s: got %s %v, want %s", tt.name, got, err, tt.want)
 		}
 	}
-	if _, err := Select(ifs, Filter{Name: "missing"}); err != ErrNoAddress {
+	if _, err := Select(ifs, Filter{Name: "missing"}); !errors.Is(err, ErrNoAddress) {
 		t.Errorf("missing interface: %v", err)
 	}
 }
