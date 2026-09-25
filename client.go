@@ -69,6 +69,7 @@ func New(opts ...Option) (*Client, error) {
 		health: health.NewRegistry(s.cfg.Health.Timeout * 4 / 5),
 		lc:     newLifecycle(),
 	}
+	c.injectHealth()
 	if c.retry == nil {
 		r := s.cfg.Retry
 		c.retry = backoff.Policy{
