@@ -50,15 +50,15 @@ errors.
 
 ## Timeouts
 
-| Setting | Default | Notes |
-| ------- | ------- | ----- |
-| `Consul.DialTimeout` | 5s | TCP connect |
-| `Consul.RequestTimeout` | 10s | every non-blocking request |
-| `Consul.WaitTime` | 5m | blocking queries (Consul's maximum is 10m) |
-| `Health.Interval` / `Health.Timeout` | 10s / 5s | the timeout must not exceed the interval |
-| `Health.TTL` | 30s | heartbeat every TTL/3 |
-| `Lifecycle.StartTimeout` | 30s | fail-fast start-up only |
-| `Lifecycle.ShutdownTimeout` | 10s | deregistration in `Run` |
+| Setting                              | Default  | Notes                                      |
+|--------------------------------------|----------|--------------------------------------------|
+| `Consul.DialTimeout`                 | 5s       | TCP connect                                |
+| `Consul.RequestTimeout`              | 10s      | every non-blocking request                 |
+| `Consul.WaitTime`                    | 5m       | blocking queries (Consul's maximum is 10m) |
+| `Health.Interval` / `Health.Timeout` | 10s / 5s | the timeout must not exceed the interval   |
+| `Health.TTL`                         | 30s      | heartbeat every TTL/3                      |
+| `Lifecycle.StartTimeout`             | 30s      | fail-fast start-up only                    |
+| `Lifecycle.ShutdownTimeout`          | 10s      | deregistration in `Run`                    |
 
 Keep the orchestrator's grace period (Kubernetes
 `terminationGracePeriodSeconds`) above `ShutdownTimeout` plus your server's
