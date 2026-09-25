@@ -6,6 +6,13 @@ contain breaking changes, always listed under "Breaking".
 
 ## [Unreleased]
 
+### Project
+
+- Community health files: contributing guide, Code of Conduct (Contributor
+  Covenant 2.1), security policy with private vulnerability reporting,
+  support guide, pull request template, issue forms (bug report, feature
+  request, question, documentation) and code owners.
+
 ## [0.2.0] - 2026-09-25
 
 ### Fixed
