@@ -203,3 +203,58 @@ func join(s []string) string {
 	}
 	return out
 }
+
+func TestStaleGraceBridgesEmptyLists(t *testing.T) {
+	a, d := setup(t)
+	a.SetHealth("payments", healthEntry("p1"))
+	now := time.Unix(1000, 0)
+	b := New(t.Context(), d, RoundRobin(), WithStaleGrace(10*time.Second))
+	b.now = func() time.Time { return now }
+	defer b.Close()
+	if _, err := b.Next(t.Context(), "payments"); err != nil {
+		t.Fatal(err)
+	}
+
+	// The list empties (for example a restarted agent reports critical).
+	a.SetHealth("payments")
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		e, _ := b.entry("payments")
+		if len(e.watch.Instances()) == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("watch did not observe the empty list")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	now = now.Add(5 * time.Second)
+	if inst, err := b.Next(t.Context(), "payments"); err != nil || inst.ID != "p1" {
+		t.Fatalf("within grace the last instances must be served: %+v %v", inst, err)
+	}
+	now = now.Add(6 * time.Second)
+	if _, err := b.Next(t.Context(), "payments"); !errors.Is(err, discovery.ErrServiceNotFound) {
+		t.Fatalf("after the grace period the empty list must win: %v", err)
+	}
+}
+
+func TestNoGraceByDefault(t *testing.T) {
+	a, d := setup(t)
+	a.SetHealth("payments", healthEntry("p1"))
+	b := New(t.Context(), d, RoundRobin())
+	defer b.Close()
+	if _, err := b.Next(t.Context(), "payments"); err != nil {
+		t.Fatal(err)
+	}
+	a.SetHealth("payments")
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, err := b.Next(t.Context(), "payments"); errors.Is(err, discovery.ErrServiceNotFound) {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("without grace an empty list must yield ErrServiceNotFound")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
