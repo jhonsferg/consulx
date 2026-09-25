@@ -51,6 +51,7 @@ type settings struct {
 	server   *http.Server
 	listener net.Listener
 	resolver AddressResolver
+	regHook  func(*api.AgentServiceRegistration)
 }
 
 // WithConsulAddress sets the Consul agent address, for example
