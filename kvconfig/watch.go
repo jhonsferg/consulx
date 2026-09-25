@@ -55,13 +55,15 @@ type Watcher[T any] struct {
 // date. It fails when the initial configuration cannot be loaded or is
 // invalid, so the caller decides whether to start without it. Afterwards,
 // invalid changes are rejected and reported on Errors while the previous
-// value stays current. The watch stops when ctx is done or Close is called.
+// value stays current; every folder watcher wakes on a write, so a given
+// rejected state is reported once, not once per folder. The watch stops
+// when ctx is done or Close is called.
 func Watch[T any](ctx context.Context, l *Loader, opts ...WatchOption[T]) (*Watcher[T], error) {
 	var o watchOptions[T]
 	for _, fn := range opts {
 		fn(&o)
 	}
-	first, err := buildValue(ctx, l, o)
+	first, _, err := buildValue(ctx, l, o)
 	if err != nil {
 		return nil, err
 	}
@@ -98,21 +100,23 @@ func (w *Watcher[T]) Close() error {
 	return nil
 }
 
-func buildValue[T any](ctx context.Context, l *Loader, o watchOptions[T]) (T, error) {
-	var v T
-	tree, err := l.Load(ctx)
+// buildValue reads, binds and validates the configuration. It returns the
+// tree it read: a nil tree means Consul could not be read, so nothing was
+// evaluated and nothing was rejected.
+func buildValue[T any](ctx context.Context, l *Loader, o watchOptions[T]) (v T, tree map[string]any, err error) {
+	tree, err = l.Load(ctx)
 	if err != nil {
-		return v, err
+		return v, nil, err
 	}
 	if err := l.bindTree(tree, o.path, &v); err != nil {
-		return v, err
+		return v, tree, err
 	}
 	if o.validate != nil {
 		if err := o.validate(v); err != nil {
-			return v, wrapInvalid(err)
+			return v, tree, wrapInvalid(err)
 		}
 	}
-	return v, nil
+	return v, tree, nil
 }
 
 func wrapInvalid(err error) error { return &invalidError{err} }
@@ -140,22 +144,47 @@ func (w *Watcher[T]) run(ctx context.Context, l *Loader, o watchOptions[T]) {
 		close(w.errs)
 		close(w.done)
 	}()
+	// rejectedTree is the configuration last rejected: the same state is
+	// reported once, while any change (even one failing with the same
+	// message) is reported again.
+	var rejectedTree map[string]any
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-changed:
 		}
-		next, err := buildValue(ctx, l, o)
+		// Every folder watcher wakes on a write, so several signals can
+		// describe the same change: one reload answers all of them.
+		coalesce(changed)
+
+		next, tree, err := buildValue(ctx, l, o)
 		if ctx.Err() != nil {
 			return
 		}
 		if err != nil {
+			if tree == nil {
+				// Consul did not answer: the configuration was never
+				// evaluated, so nothing was rejected.
+				l.cfg.Observe("reload", err)
+				l.cfg.Logger.Warn("configuration reload failed, keeping the previous value",
+					slog.Any("error", err))
+				w.publishErr(err)
+				continue
+			}
+			// The same write reaches every watcher, so one rejected state
+			// can be rebuilt more than once: report it once, until the
+			// configuration changes.
+			if rejectedTree != nil && reflect.DeepEqual(tree, rejectedTree) {
+				continue
+			}
+			rejectedTree = tree
 			l.cfg.Observe("reject", err)
 			l.cfg.Logger.Warn("configuration rejected, keeping the previous value", slog.Any("error", err))
 			w.publishErr(err)
 			continue
 		}
+		rejectedTree = nil
 		old := w.Current()
 		if reflect.DeepEqual(old, next) {
 			continue
@@ -170,6 +199,18 @@ func (w *Watcher[T]) run(ctx context.Context, l *Loader, o watchOptions[T]) {
 		w.changes <- next
 		if o.onChange != nil {
 			o.onChange(old, next)
+		}
+	}
+}
+
+// coalesce drains the change signals queued while the caller was busy: they
+// all describe configuration states that one reload reads in full.
+func coalesce(changed <-chan struct{}) {
+	for {
+		select {
+		case <-changed:
+		default:
+			return
 		}
 	}
 }
@@ -190,6 +231,7 @@ func (w *Watcher[T]) publishErr(err error) {
 func (l *Loader) watchPrefix(ctx context.Context, prefix string, changed chan<- struct{}, report func(error)) {
 	limiter := blocking.NewLimiter(l.cfg.MinInterval, 2)
 	var index uint64
+	var hadKeys bool
 	failures := 0
 	for {
 		if limiter.Wait(ctx) != nil {
@@ -198,7 +240,7 @@ func (l *Loader) watchPrefix(ctx context.Context, prefix string, changed chan<- 
 		// Bound each blocking request (see blocking.RequestTimeout).
 		rctx, cancel := context.WithTimeout(ctx, blocking.RequestTimeout(l.cfg.WaitTime, l.cfg.RequestTimeout))
 		q := (&api.QueryOptions{WaitIndex: index, WaitTime: l.cfg.WaitTime}).WithContext(rctx)
-		_, meta, err := l.kv.Keys(prefix, "", q)
+		keys, meta, err := l.kv.Keys(prefix, "", q)
 		cancel()
 		if ctx.Err() != nil {
 			return
@@ -228,12 +270,20 @@ func (l *Loader) watchPrefix(ctx context.Context, prefix string, changed chan<- 
 		// Signal on the first response too: a change made between the
 		// initial load and this response would otherwise be lost. The
 		// reload is cheap and publishes nothing if the value is unchanged.
-		if prev == 0 || index != prev || failures > 0 {
+		//
+		// A folder that holds no keys only signals the first time and after
+		// a failure: it contributes nothing to the merged configuration, and
+		// Consul answers its blocking query on every write of the store,
+		// because a prefix without keys has no index of its own. Reloading
+		// on those writes only rebuilt an unchanged configuration, which
+		// re-reported the same rejected value once per folder.
+		if prev == 0 || failures > 0 || (index != prev && (len(keys) > 0 || hadKeys)) {
 			select {
 			case changed <- struct{}{}:
 			default:
 			}
 		}
+		hadKeys = len(keys) > 0
 		failures = 0
 	}
 }
