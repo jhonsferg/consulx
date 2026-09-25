@@ -284,7 +284,10 @@ on the context. `RetryPolicy` is an interface so users can plug their own.
 * Dynamic config: `kvconfig.Watch[T]` watches every layer with blocking
   queries, rebuilds a fresh `T`, validates, and only then publishes it.
   Invalid changes are rejected, logged ("configuration rejected"), counted,
-  and the previous value remains current.
+  and the previous value remains current. A reload that cannot read Consul
+  is logged as "configuration reload failed" instead: nothing was evaluated,
+  so nothing was rejected. Every layer wakes on a write, but a rejected
+  state is rebuilt and reported once, not once per layer.
 
 ## 10. Configuration precedence
 
