@@ -33,7 +33,7 @@ func TestPortResolution(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			c := newTestClient(t, append([]Option{WithServiceName("a")}, tt.opts...)...)
-			port, source, err := c.resolvePort()
+			port, source, err := c.resolvePort(t.Context())
 			if err != nil || port != tt.port || source != tt.source {
 				t.Fatalf("got %d %s %v", port, source, err)
 			}
@@ -50,7 +50,7 @@ func TestPortResolutionErrors(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			c := newTestClient(t, append([]Option{WithServiceName("a")}, opts...)...)
-			if _, _, err := c.resolvePort(); !errors.Is(err, ErrInvalidConfiguration) {
+			if _, _, err := c.resolvePort(t.Context()); !errors.Is(err, ErrInvalidConfiguration) {
 				t.Fatalf("got %v", err)
 			}
 		})
