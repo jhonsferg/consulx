@@ -8,6 +8,13 @@ contain breaking changes, always listed under "Breaking".
 
 ### Fixed
 
+- Health checks: a checker that ignores its context no longer leaves one
+  stuck goroutine per probe. Concurrent and successive probes share the
+  execution in flight, and a result produced after the deadline counts as a
+  timeout.
+- Balancer: the watch of a service unused for `DefaultIdleTimeout`
+  (15 minutes, `WithIdleTimeout`) is released, so dynamically named services
+  no longer keep goroutines and connections forever.
 - `kvconfig.Watch` reports a rejected configuration state once instead of
   once per watched folder: every folder wakes on a write, and a folder
   without keys used to rebuild and re-report an unchanged configuration.
@@ -26,6 +33,17 @@ contain breaking changes, always listed under "Breaking".
   `Errors()` channel.
 - Documentation: the Docker command quotes `-client=0.0.0.0`, which
   PowerShell otherwise splits at the dots.
+
+### Changed
+
+- `Balancer.Next` copies only the selected instance: with 20 instances it
+  went from 15.8 KB and 81 allocations to 464 B and 4 allocations per call.
+  New `discovery.Watch.Pick` exposes the same zero-copy selection.
+- Configuration binding allocates 99.7% less (324.9 KB to 904 B per bind)
+  and runs 14 times faster.
+- Readiness probes allocate 20% less.
+- `TestNoLeakUnderChurn` guards against goroutine and heap growth on every
+  build. See docs/performance.md.
 
 ## [0.1.0] - 2026-09-25
 
