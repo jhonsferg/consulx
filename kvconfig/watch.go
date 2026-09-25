@@ -65,7 +65,7 @@ func Watch[T any](ctx context.Context, l *Loader, opts ...WatchOption[T]) (*Watc
 	if err != nil {
 		return nil, err
 	}
-	ctx, cancel := context.WithCancel(ctx)
+	ctx, cancel := context.WithCancel(ctx) // #nosec G118 -- cancel is kept in w.cancel and called by Close and by run on exit
 	w := &Watcher[T]{
 		changes: make(chan T, 1),
 		errs:    make(chan error, 1),
@@ -134,6 +134,7 @@ func (w *Watcher[T]) run(ctx context.Context, l *Loader, o watchOptions[T]) {
 		wg.Go(func() { l.watchPrefix(ctx, prefix, changed, w.publishErr) })
 	}
 	defer func() {
+		w.cancel() // release the context even if the parent never ends it
 		wg.Wait()
 		close(w.changes)
 		close(w.errs)
@@ -194,8 +195,11 @@ func (l *Loader) watchPrefix(ctx context.Context, prefix string, changed chan<- 
 		if limiter.Wait(ctx) != nil {
 			return
 		}
-		q := (&api.QueryOptions{WaitIndex: index, WaitTime: l.cfg.WaitTime}).WithContext(ctx)
+		// Bound each blocking request (see blocking.RequestTimeout).
+		rctx, cancel := context.WithTimeout(ctx, blocking.RequestTimeout(l.cfg.WaitTime, l.cfg.RequestTimeout))
+		q := (&api.QueryOptions{WaitIndex: index, WaitTime: l.cfg.WaitTime}).WithContext(rctx)
 		_, meta, err := l.kv.Keys(prefix, "", q)
+		cancel()
 		if ctx.Err() != nil {
 			return
 		}
