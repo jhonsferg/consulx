@@ -21,10 +21,7 @@ import (
 // host.docker.internal.
 func httpService(t *testing.T) (*http.Server, net.Listener) {
 	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
+	ln := listen(t)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /orders", func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, "[]") })
 	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
@@ -87,7 +84,7 @@ func TestRegistrationLifecycleWithHTTPCheck(t *testing.T) {
 	}
 
 	// The original route still works next to the injected endpoints.
-	resp, err := http.Get("http://" + ln.Addr().String() + "/orders")
+	resp, err := http.Get(localURL(ln) + "/orders")
 	if err != nil || resp.StatusCode != 200 {
 		t.Fatalf("original route: %v %v", resp, err)
 	}
