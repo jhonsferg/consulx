@@ -1,6 +1,7 @@
 // Command discovery calls another service found in Consul: a one-off
 // lookup, a watch that follows changes, and client-side load balancing.
-// It registers nothing.
+// It registers nothing. It looks up orders-api with the tag "v1", which
+// examples/basic registers, so start that example first.
 package main
 
 import (
@@ -35,7 +36,8 @@ func main() {
 	}
 	defer func() { _ = consul.Stop(context.Background()) }()
 
-	// One-off lookup of healthy instances with a tag.
+	// One-off lookup of healthy instances with the tag "v1", the tag
+	// examples/basic registers on orders-api.
 	instances, err := consul.Discovery().Service("orders-api").Tag("v1").All(ctx)
 	if err != nil {
 		slog.Error("lookup", "error", err)

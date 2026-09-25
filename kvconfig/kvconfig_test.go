@@ -220,6 +220,53 @@ func TestWatchAppliesValidChangesAndRejectsInvalid(t *testing.T) {
 	}
 }
 
+func TestWatchReportsOneRejectionPerChange(t *testing.T) {
+	a, l := setup(t, Config{Name: "orders-api"})
+	a.PutKV("config/orders-api/database/host", "db1")
+
+	w, err := Watch(t.Context(), l, WithValidator(func(c AppConfig) error {
+		if c.Database.Host == "forbidden" {
+			return errors.New("host not allowed")
+		}
+		return nil
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+
+	a.PutKV("config/orders-api/database/host", "forbidden")
+	select {
+	case err := <-w.Errors():
+		if !errors.Is(err, ErrInvalid) {
+			t.Fatalf("rejection must match ErrInvalid: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("rejection not reported")
+	}
+	// One write wakes every context folder, including the empty
+	// config/application/: the same rejected state must be reported once.
+	select {
+	case err := <-w.Errors():
+		t.Fatalf("rejection reported twice: %v", err)
+	case <-time.After(500 * time.Millisecond):
+	}
+	if w.Current().Database.Host != "db1" {
+		t.Fatalf("invalid configuration applied: %+v", w.Current())
+	}
+
+	// A later, different rejection is reported again.
+	a.PutKV("config/orders-api/database/max-conns", "-5")
+	select {
+	case err := <-w.Errors():
+		if !errors.Is(err, ErrInvalid) {
+			t.Fatalf("rejection must match ErrInvalid: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("second rejection not reported")
+	}
+}
+
 func TestWatchInitialFailure(t *testing.T) {
 	_, l := setup(t, Config{Name: "orders-api"})
 	if _, err := Watch[AppConfig](t.Context(), l); !errors.Is(err, ErrRequired) {
@@ -284,5 +331,34 @@ func TestMerge(t *testing.T) {
 	src["d"].(map[string]any)["n"] = "mutated"
 	if dst["d"].(map[string]any)["n"] != "1" {
 		t.Fatal("merge must copy nested objects")
+	}
+}
+
+// Two different invalid values can share an error message; each one is a
+// new rejected state and must be reported.
+func TestWatchReportsDistinctRejectionsWithSameMessage(t *testing.T) {
+	a, l := setup(t, Config{Name: "orders-api"})
+	a.PutKV("config/orders-api/database/host", "db1")
+	w, err := Watch(t.Context(), l, WithValidator(func(c AppConfig) error {
+		if strings.HasPrefix(c.Database.Host, "forbidden") {
+			return errors.New("host not allowed")
+		}
+		return nil
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+
+	for _, host := range []string{"forbidden-1", "forbidden-2"} {
+		a.PutKV("config/orders-api/database/host", host)
+		select {
+		case err := <-w.Errors():
+			if !errors.Is(err, ErrInvalid) {
+				t.Fatalf("%s: rejection must match ErrInvalid: %v", host, err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("%s: rejection not reported", host)
+		}
 	}
 }

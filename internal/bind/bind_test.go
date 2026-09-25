@@ -208,3 +208,18 @@ func TestMissingSectionAppliesDefaultsAndRequired(t *testing.T) {
 		t.Fatal("missing pointer sections must stay nil")
 	}
 }
+
+func TestSameKey(t *testing.T) {
+	same := [][2]string{{"MaxConns", "max-conns"}, {"MaxConns", "max_conns"}, {"MaxConns", "maxconns"}, {"a.b", "AB"}, {"", "-_."}, {"ÉTÉ", "été"}}
+	for _, p := range same {
+		if !sameKey(p[0], p[1]) || !sameKey(p[1], p[0]) {
+			t.Errorf("%q and %q must match", p[0], p[1])
+		}
+	}
+	diff := [][2]string{{"host", "hosts"}, {"port", "sport"}, {"a", ""}, {"max-conns", "min-conns"}}
+	for _, p := range diff {
+		if sameKey(p[0], p[1]) || sameKey(p[1], p[0]) {
+			t.Errorf("%q and %q must not match", p[0], p[1])
+		}
+	}
+}

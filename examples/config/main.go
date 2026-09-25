@@ -4,7 +4,12 @@
 //	consul kv put config/application/database/host shared-db
 //	consul kv put config/orders-api,prod/database/max-conns 50
 //	CONSULX_ENVIRONMENT=prod go run ./config
-//	consul kv put config/orders-api/database/max-conns 5000   # rejected
+//	consul kv put config/orders-api,prod/database/max-conns 5000   # rejected
+//
+// The profile layer has the highest precedence, so while
+// CONSULX_ENVIRONMENT=prod is set a value under config/orders-api/ is
+// shadowed by config/orders-api,prod/ and never reaches this process: the
+// change to reject has to be written to the profile layer.
 package main
 
 import (
@@ -61,13 +66,23 @@ func main() {
 	defer func() { _ = w.Close() }()
 	fmt.Printf("initial configuration: %+v\n", w.Current())
 
+	errs := w.Errors()
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case err, ok := <-w.Errors():
-			if ok {
+		case err, ok := <-errs:
+			if !ok {
+				errs = nil // closed with the watch: stop selecting on it
+				continue
+			}
+			// Only invalid values are rejected; anything else failed to
+			// load (Consul unreachable, malformed document) and the
+			// previous value is kept for the same reason.
+			if errors.Is(err, kvconfig.ErrInvalid) {
 				fmt.Println("change rejected, keeping previous value:", err)
+			} else {
+				fmt.Println("reload failed, keeping previous value:", err)
 			}
 		case <-w.Changes():
 		}

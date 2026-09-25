@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -216,5 +218,69 @@ func TestHandlerHideDetailsAndMethods(t *testing.T) {
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/", nil))
 	if rec.Code != http.StatusMethodNotAllowed || rec.Header().Get("Allow") != "GET, HEAD" {
 		t.Fatalf("POST: code %d", rec.Code)
+	}
+}
+
+// A checker that ignores its context and never returns must not leave one
+// stuck goroutine per probe: probes run every few seconds for the life of
+// the process, so that would grow without bound.
+func TestHungCheckerDoesNotAccumulateGoroutines(t *testing.T) {
+	release := make(chan struct{})
+	defer close(release)
+	r := NewRegistry(10 * time.Millisecond)
+	r.Register("stuck", CheckerFunc(func(context.Context) Result {
+		<-release // ignores ctx on purpose
+		return Result{Status: StatusUp}
+	}))
+	before := runtime.NumGoroutine()
+	for range 50 {
+		if rep := r.Ready(t.Context()); rep.Status != StatusDown {
+			t.Fatalf("a hung checker must report DOWN: %+v", rep)
+		}
+	}
+	if grown := runtime.NumGoroutine() - before; grown > 2 {
+		t.Fatalf("50 probes of a hung checker left %d extra goroutines", grown)
+	}
+}
+
+// Concurrent probes (Consul and Kubernetes at the same time) join the check
+// in flight instead of failing or running it again.
+func TestConcurrentProbesShareOneCheck(t *testing.T) {
+	var calls atomic.Int32
+	r := NewRegistry(time.Second)
+	r.Register("slow-but-fine", CheckerFunc(func(context.Context) Result {
+		calls.Add(1)
+		time.Sleep(50 * time.Millisecond)
+		return Result{Status: StatusUp}
+	}))
+	var wg sync.WaitGroup
+	for range 10 {
+		wg.Go(func() {
+			if rep := r.Ready(t.Context()); rep.Status != StatusUp {
+				t.Errorf("concurrent probe got %+v", rep)
+			}
+		})
+	}
+	wg.Wait()
+	if n := calls.Load(); n != 1 {
+		t.Fatalf("checker ran %d times for concurrent probes, want 1", n)
+	}
+	// A later probe runs the check again.
+	r.Ready(t.Context())
+	if n := calls.Load(); n != 2 {
+		t.Fatalf("sequential probe must run a new check, calls=%d", n)
+	}
+}
+
+func BenchmarkReadyProbe(b *testing.B) {
+	r := NewRegistry(time.Second)
+	r.Register("db", CheckerFunc(up))
+	r.Register("cache", CheckerFunc(up))
+	r.Set("broker", Result{Status: StatusUp})
+	h := Handler(r.Ready, HandlerOptions{})
+	req := httptest.NewRequest(http.MethodGet, "/health/ready", nil)
+	b.ReportAllocs()
+	for b.Loop() {
+		h.ServeHTTP(httptest.NewRecorder(), req)
 	}
 }

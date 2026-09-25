@@ -1,17 +1,21 @@
 name: Release
 
 # Automatic release after a merge to main, once every required workflow
-# passed for that commit:
+# passed for that commit. The full flow is drawn in docs/release.md:
 #
-#   PR → CI + Security on the PR → merge → CI + Security on main
-#     → (this workflow) version, tags, GitHub release → pkg.go.dev
+#   1. A pull request passes CI and Security and is merged into main.
+#   2. CI and Security run again on main.
+#   3. This workflow computes the version, creates the tags, the GitHub
+#      releases and notifies proxy.golang.org, which feeds pkg.go.dev.
 #
-# The next version is derived from Conventional Commit subjects since the
-# last tag of each module:
-#   feat                     → minor
-#   fix, refactor            → patch
-#   "!" or BREAKING CHANGE   → major (minor while the module is v0)
-#   docs, style, chore only  → no release
+# The next version is derived from the Conventional Commit subjects since
+# the last tag of each module, counting only commits that change Go files
+# (*.go, go.mod, go.sum):
+#   - feat: minor version
+#   - fix, refactor: patch version
+#   - "!" after the type or a BREAKING CHANGE footer: major version
+#     (minor while the module is v0)
+#   - docs, style, chore, or no Go file changed: no release
 on:
   workflow_run:
     workflows: [CI, Security]
@@ -104,12 +108,14 @@ jobs:
           }
 
           created=()
-          # Root module: everything except other modules, docs and CI files.
+          # Root module: its Go files, outside the other modules.
           last=$(git tag --list 'v[0-9]*' --sort=-v:refname | head -1)
           range=${last:+$last..}HEAD
-          version=$(next_version "${last:-v0.0.0}" "$range" . \
-            ':(exclude)contrib' ':(exclude)examples' ':(exclude)integration' \
-            ':(exclude)docs' ':(exclude).github' ':(exclude)*.md')
+          # Only Go sources and module files reach users through `go get`:
+          # documentation, CI and tooling changes never trigger a release.
+          version=$(next_version "${last:-v0.0.0}" "$range" \
+            '*.go' go.mod go.sum \
+            ':(exclude)contrib' ':(exclude)examples' ':(exclude)integration')
           if [ -n "$version" ]; then
             git tag -a "$version" -m "consulx $version"
             created+=("$version")
@@ -122,7 +128,7 @@ jobs:
             last=$(git tag --list "$m/v[0-9]*" --sort=-v:refname | head -1)
             range=${last:+$last..}HEAD
             last_version=${last#"$m/"}
-            version=$(next_version "${last_version:-v0.0.0}" "$range" "$m")
+            version=$(next_version "${last_version:-v0.0.0}" "$range" "$m/*.go" "$m/go.mod" "$m/go.sum")
             if [ -n "$version" ]; then
               git tag -a "$m/$version" -m "$m $version"
               created+=("$m/$version")
@@ -137,16 +143,73 @@ jobs:
           echo "tags=${created[*]}" >> "$GITHUB_OUTPUT"
           echo "Created: ${created[*]}"
 
-      - name: GitHub release
-        if: steps.tags.outputs.root != ''
+      - name: GitHub releases with notes
+        if: steps.tags.outputs.tags != ''
         env:
           GH_TOKEN: ${{ github.token }}
+          TAGS: ${{ steps.tags.outputs.tags }}
         run: |
-          args=(--title "${{ steps.tags.outputs.root }}" --generate-notes --verify-tag)
-          if [ -n "${{ steps.tags.outputs.root_last }}" ]; then
-            args+=(--notes-start-tag "${{ steps.tags.outputs.root_last }}")
-          fi
-          gh release create "${{ steps.tags.outputs.root }}" "${args[@]}"
+          set -euo pipefail
+          repo_url="https://github.com/${GITHUB_REPOSITORY}"
+          base_module="github.com/${GITHUB_REPOSITORY,,}"
+
+          # section <title> <subject regex> <range> <pathspec...>
+          # Lists matching commits as "- scope: message (sha)". Squash merges
+          # keep the PR number in the subject, which GitHub links.
+          section() {
+            local title="$1" pattern="$2" range="$3"; shift 3
+            local lines
+            lines=$(git log --no-merges --format='%H%x09%s' "$range" -- "$@" | grep -E "^[0-9a-f]+"$'\t'"${pattern}" || true)
+            [ -z "$lines" ] && return 0
+            printf '### %s\n\n' "$title"
+            while IFS=$'\t' read -r sha subject; do
+              scope=$(sed -nE 's/^[a-z]+\(([^)]*)\)!?:.*/\1/p' <<< "$subject")
+              msg=${subject#*: }
+              # shellcheck disable=SC2016 # backticks are Markdown
+              printf -- '- %s%s ([`%s`](%s/commit/%s))\n' "${scope:+**$scope:** }" "$msg" "${sha:0:7}" "$repo_url" "$sha"
+            done <<< "$lines"
+            printf '\n'
+          }
+
+          # notes <tag> <previous tag or empty> <module path> <pathspec...>
+          notes() {
+            local tag="$1" prev="$2" module="$3"; shift 3
+            local version="v${tag##*v}" range="${prev:+$prev..}$tag"
+            # shellcheck disable=SC2016 # backticks are Markdown
+            printf '## Install\n\n```sh\ngo get %s@%s\n```\n\n' "$module" "$version"
+            printf 'API reference: [pkg.go.dev](https://pkg.go.dev/%s@%s)\n\n' "$module" "$version"
+            section "⚠️ Breaking changes" '[a-z]+(\([^)]*\))?!:' "$range" "$@"
+            section "✨ Features" 'feat(\([^)]*\))?:' "$range" "$@"
+            section "🐛 Bug fixes" 'fix(\([^)]*\))?:' "$range" "$@"
+            section "♻️ Refactoring and performance" 'refactor(\([^)]*\))?:' "$range" "$@"
+            section "📚 Documentation" 'docs(\([^)]*\))?:' "$range" "$@"
+            local chores
+            chores=$(git log --no-merges --format='%s' "$range" -- "$@" | grep -cE '^(chore|style)(\([^)]*\))?:' || true)
+            [ "$chores" -gt 0 ] && printf '### 🔧 Maintenance\n\n%s maintenance commits (tests, dependencies, CI, formatting).\n\n' "$chores"
+            if [ -n "$prev" ]; then
+              printf '**Full changelog**: %s/compare/%s...%s\n' "$repo_url" "$prev" "$tag"
+            else
+              printf '**Full changelog**: %s/commits/%s\n' "$repo_url" "$tag"
+            fi
+          }
+
+          for tag in $TAGS; do
+            case "$tag" in
+              v*)
+                prev=$(git tag --list 'v[0-9]*' --sort=-v:refname | grep -vx "$tag" | head -1 || true)
+                notes "$tag" "$prev" "$base_module" . \
+                  ':(exclude)contrib' ':(exclude)examples' ':(exclude)integration' \
+                  ':(exclude).github' > notes.md
+                gh release create "$tag" --title "$tag" --notes-file notes.md --verify-tag --latest
+                ;;
+              *)
+                path="${tag%/v*}"
+                prev=$(git tag --list "$path/v[0-9]*" --sort=-v:refname | grep -vx "$tag" | head -1 || true)
+                notes "$tag" "$prev" "$base_module/$path" "$path" > notes.md
+                gh release create "$tag" --title "$path ${tag##*/}" --notes-file notes.md --verify-tag --latest=false
+                ;;
+            esac
+          done
 
       - name: Notify the Go module proxy and pkg.go.dev
         if: steps.tags.outputs.tags != ''

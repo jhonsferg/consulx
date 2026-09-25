@@ -100,6 +100,18 @@ type component struct {
 	scope   Scope
 	checker Checker // nil for pushed components
 	pushed  Result
+	// inflight is the Check call in progress, shared by concurrent probes.
+	// A checker that ignores its context can hang forever; sharing the call
+	// keeps probes from piling up one stuck goroutine each.
+	mu       sync.Mutex
+	inflight *checkCall
+}
+
+// checkCall is one execution of a Checker.
+type checkCall struct {
+	ctx  context.Context // bounds the execution; probes wait at most this long
+	done chan struct{}
+	res  Result
 }
 
 // Registry holds the application's health components. It is safe for
@@ -211,14 +223,15 @@ func (r *Registry) Health(ctx context.Context) Report {
 // (it received a cancelled context).
 func (r *Registry) run(ctx context.Context, scope Scope) Report {
 	type named struct {
-		name string
-		c    component
+		name   string
+		c      *component
+		pushed Result // copied under the lock: Set may replace it
 	}
 	r.mu.RLock()
 	var list []named
 	for name, c := range r.components {
 		if c.scope&scope != 0 {
-			list = append(list, named{name, *c})
+			list = append(list, named{name, c, c.pushed})
 		}
 	}
 	r.mu.RUnlock()
@@ -228,16 +241,22 @@ func (r *Registry) run(ctx context.Context, scope Scope) Report {
 		return rep
 	}
 
-	results := make([]Result, len(list))
-	var wg sync.WaitGroup
+	// Start every check first so they run concurrently, then collect: the
+	// probe takes as long as the slowest check, without helper goroutines.
+	calls := make([]*checkCall, len(list))
 	for i, n := range list {
-		if n.c.checker == nil {
-			results[i] = n.c.pushed
+		if n.c.checker != nil {
+			calls[i] = r.begin(ctx, n.c)
+		}
+	}
+	results := make([]Result, len(list))
+	for i, n := range list {
+		if calls[i] == nil {
+			results[i] = n.pushed
 			continue
 		}
-		wg.Go(func() { results[i] = r.check(ctx, n.c.checker) })
+		results[i] = calls[i].wait(ctx)
 	}
-	wg.Wait()
 
 	for i, n := range list {
 		res := results[i]
@@ -250,25 +269,62 @@ func (r *Registry) run(ctx context.Context, scope Scope) Report {
 	return rep
 }
 
-func (r *Registry) check(ctx context.Context, c Checker) (res Result) {
-	ctx, cancel := context.WithTimeout(ctx, r.timeout)
-	defer cancel()
-
-	done := make(chan Result, 1) // buffered: a late checker never blocks
+// begin returns the execution of c in flight, starting one if there is none,
+// so concurrent probes share it. The execution has its own deadline and
+// outlives the probe that started it if the checker is slow.
+func (r *Registry) begin(ctx context.Context, c *component) *checkCall {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.inflight != nil {
+		return c.inflight
+	}
+	cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), r.timeout)
+	call := &checkCall{ctx: cctx, done: make(chan struct{})}
+	c.inflight = call
 	go func() {
-		defer func() {
-			if p := recover(); p != nil {
-				done <- Result{Status: StatusDown, Error: "health check panicked"}
-			}
-		}()
-		done <- c.Check(ctx)
+		defer cancel()
+		res := runChecker(cctx, c.checker)
+		c.mu.Lock()
+		call.res = res
+		c.inflight = nil
+		c.mu.Unlock()
+		close(call.done)
 	}()
+	return call
+}
+
+// wait returns the result of the execution, or DOWN when its deadline
+// passes (a hung checker) or the probe itself is cancelled.
+func (call *checkCall) wait(ctx context.Context) Result {
 	select {
-	case res = <-done:
-		return res
+	case <-call.done:
+		return call.res
+	case <-call.ctx.Done():
 	case <-ctx.Done():
+	}
+	// The execution cancels its context right after publishing its result,
+	// so both channels can be ready: a published result wins.
+	select {
+	case <-call.done:
+		return call.res
+	default:
 		return Result{Status: StatusDown, Error: "health check timed out"}
 	}
+}
+
+// runChecker calls the checker. A panic is DOWN, and so is any result
+// produced after the deadline: a late answer is not a timely one.
+func runChecker(ctx context.Context, c Checker) (res Result) {
+	defer func() {
+		if p := recover(); p != nil {
+			res = Result{Status: StatusDown, Error: "health check panicked"}
+		}
+	}()
+	res = c.Check(ctx)
+	if ctx.Err() != nil {
+		return Result{Status: StatusDown, Error: "health check timed out"}
+	}
+	return res
 }
 
 func combine(scopes []Scope) Scope {

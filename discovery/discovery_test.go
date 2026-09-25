@@ -3,6 +3,7 @@ package discovery
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"sync"
 	"testing"
@@ -313,5 +314,27 @@ func eventuallyTrue(t *testing.T, cond func() bool) {
 			t.Fatal("condition not met")
 		}
 		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+func BenchmarkWatchPick(b *testing.B) {
+	a := fakeconsul.New("1.22.7")
+	defer a.Close()
+	entries := make([]*api.ServiceEntry, 20)
+	for i := range entries {
+		entries[i] = entry(fmt.Sprintf("p%02d", i), "10.0.0.1", 80, api.HealthPassing, "v1")
+	}
+	a.SetHealth("payments", entries...)
+	raw, _ := api.NewClient(&api.Config{Address: a.URL()})
+	w, err := New(raw, Config{}).Watch(context.Background(), "payments")
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer w.Close()
+	<-w.Ready()
+	pick := func(l []ServiceInstance) (ServiceInstance, bool) { return l[0], len(l) > 0 }
+	b.ReportAllocs()
+	for b.Loop() {
+		_, _ = w.Pick(pick)
 	}
 }
