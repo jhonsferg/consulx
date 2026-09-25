@@ -172,10 +172,12 @@ func (c *Client) start(ctx context.Context) error {
 		c.setDegraded()
 	}
 
-	c.goRuntime("registrar", c.runRegistrar)
+	// Runtime tasks use the runtime context, not the start-up ctx: they
+	// must outlive Start (see ADR 0002).
+	c.goRuntime("registrar", c.runRegistrar) //nolint:contextcheck // runtime context by design
 	if c.cfg.Health.Check == CheckTTL {
 		c.health.OnPush(c.notifyHealthChanged)
-		c.goRuntime("heartbeat", c.runHeartbeat)
+		c.goRuntime("heartbeat", c.runHeartbeat) //nolint:contextcheck // runtime context by design
 	}
 	return nil
 }
