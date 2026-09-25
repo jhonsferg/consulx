@@ -30,8 +30,15 @@ type Client struct {
 	listener net.Listener
 	resolver AddressResolver
 	health   *health.Registry
+	scheme   string // decided in New, see detectScheme
 
 	lc lifecycle
+
+	reg           registration
+	regHook       func(*api.AgentServiceRegistration)
+	idOnce        sync.Once
+	generatedID   string
+	healthChanged chan struct{} // wakes the TTL heartbeat
 
 	agentMu sync.Mutex
 	agent   compat.AgentInfo
@@ -66,8 +73,10 @@ func New(opts ...Option) (*Client, error) {
 		resolver:  s.resolver,
 		// Checkers get 80% of the Consul check timeout, so the aggregated
 		// response is written before Consul gives up on the request.
-		health: health.NewRegistry(s.cfg.Health.Timeout * 4 / 5),
-		lc:     newLifecycle(),
+		health:        health.NewRegistry(s.cfg.Health.Timeout * 4 / 5),
+		lc:            newLifecycle(),
+		regHook:       s.regHook,
+		healthChanged: make(chan struct{}, 1),
 	}
 	c.injectHealth()
 	if c.retry == nil {
