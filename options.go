@@ -4,6 +4,7 @@ import (
 	"errors"
 	"log/slog"
 	"maps"
+	"net"
 	"net/http"
 	"slices"
 	"time"
@@ -46,6 +47,10 @@ type settings struct {
 	retry      RetryPolicy
 	httpClient *http.Client
 	apiHook    func(*api.Config)
+
+	server   *http.Server
+	listener net.Listener
+	resolver AddressResolver
 }
 
 // WithConsulAddress sets the Consul agent address, for example
