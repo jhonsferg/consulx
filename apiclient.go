@@ -28,7 +28,8 @@ func newAPIClient(s *settings) (*api.Client, *http.Transport, error) {
 		Partition:  cc.Partition,
 		Token:      cc.Token.Reveal(),
 		TokenFile:  cc.TokenFile,
-		WaitTime:   cc.WaitTime,
+		// WaitTime is deliberately not set: the official client would add
+		// it to every query, blocking or not. Watches pass it explicitly.
 		TLSConfig: api.TLSConfig{
 			Address:            cc.TLS.ServerName,
 			CAFile:             cc.TLS.CAFile,
