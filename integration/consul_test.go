@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -103,6 +104,27 @@ func (a *agent) instances(t *testing.T, service string, passingOnly bool) []*api
 		return nil
 	}
 	return entries
+}
+
+// listen opens a listener the Consul container can reach. On Linux,
+// host.docker.internal maps to the Docker bridge gateway, so the listener
+// must accept on every interface; Docker Desktop proxies to loopback.
+func listen(t *testing.T) net.Listener {
+	t.Helper()
+	addr := "127.0.0.1:0"
+	if runtime.GOOS == "linux" {
+		addr = ":0"
+	}
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ln
+}
+
+// localURL is the URL the test process uses to reach a listener.
+func localURL(ln net.Listener) string {
+	return "http://127.0.0.1:" + strconv.Itoa(ln.Addr().(*net.TCPAddr).Port)
 }
 
 func freePort(t *testing.T) int {
