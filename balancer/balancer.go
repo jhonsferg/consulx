@@ -63,7 +63,7 @@ func RoundRobin() Strategy {
 func Random() Strategy {
 	return StrategyFunc(func() Picker {
 		return PickerFunc(func(list []discovery.ServiceInstance) discovery.ServiceInstance {
-			return list[rand.IntN(len(list))]
+			return list[rand.IntN(len(list))] // #nosec G404 -- load balancing needs no cryptographic randomness
 		})
 	})
 }
@@ -79,9 +79,9 @@ func Weighted() Strategy {
 				total += max(i.Weight(), 0)
 			}
 			if total == 0 {
-				return list[rand.IntN(len(list))]
+				return list[rand.IntN(len(list))] // #nosec G404 -- load balancing needs no cryptographic randomness
 			}
-			r := rand.IntN(total)
+			r := rand.IntN(total) // #nosec G404 -- load balancing needs no cryptographic randomness
 			for _, i := range list {
 				if r -= max(i.Weight(), 0); r < 0 {
 					return i
