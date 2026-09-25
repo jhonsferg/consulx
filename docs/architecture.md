@@ -1,7 +1,8 @@
 # ConsulX Architecture
 
-Status: **proposal** (Architecture & Capability Discovery). Evidence for every
-Consul-related claim is in [compatibility.md](compatibility.md).
+Status: **implemented (v0.x)**. Evidence for every Consul-related claim is in
+[compatibility.md](compatibility.md); decisions are recorded in
+[decisions/](decisions/).
 
 ## 1. Scope
 
@@ -27,7 +28,8 @@ consulx.Client ─────────────── Raw() ──► *ap
    │     ├── heartbeat     TTL checks only
    │     └── watchers      discovery / config / load balancer caches
    ├── internal/compat     agent version + edition → feature gate
-   ├── internal/backoff    exponential, full jitter, capped
+   ├── internal/backoff    exponential, equal jitter, capped
+   ├── internal/blocking   blocking-query index rules, token-bucket pacing
    └── official client ──► Consul agent HTTP API (/v1)
 ```
 
@@ -44,20 +46,24 @@ github.com/jhonsferg/consulx            core module
 ├── discovery/          query builder, ServiceInstance, Watch, events
 ├── balancer/           Balancer interface, RoundRobin, Random, Weighted
 ├── kvconfig/           layered KV config, binding, generic Watcher[T]
-├── kv/                 context-first KV helpers (namespace/dc defaults)
 ├── internal/compat     version detection, feature gate
 ├── internal/backoff    retry policy implementation
 ├── internal/bind       reflection binder (tree → struct), fuzzed
+├── internal/blocking   blocking-query rules shared by every watch
 ├── internal/netaddr    host:port parsing, interface/route IP discovery
 ├── internal/serviceid  ID generation and sanitising
 └── internal/fakeconsul in-process fake agent (httptest) for unit tests
 
 github.com/jhonsferg/consulx/integration      separate module: testcontainers
-github.com/jhonsferg/consulx/contrib/prometheus separate module (Phase 8)
-github.com/jhonsferg/consulx/contrib/otel       separate module (Phase 8)
-github.com/jhonsferg/consulx/contrib/fiber      separate module (Phase 9)
-examples/                                        separate module
+github.com/jhonsferg/consulx/contrib/prometheus separate module: Prometheus metrics
+github.com/jhonsferg/consulx/contrib/otel       separate module: OpenTelemetry metrics, tracing
+github.com/jhonsferg/consulx/contrib/fiber      separate module: Fiber health endpoints
+github.com/jhonsferg/consulx/examples           separate module: runnable examples
 ```
+
+A planned `kv/` package was dropped: the official KV client already accepts a
+context through `QueryOptions.WithContext`, so a wrapper would add nothing.
+KV is used through `Raw().KV()`.
 
 Why not one package per Consul API (`acl/`, `catalog/`, `session/`...)?
 Those would be thin copies of the official client with no added behaviour.
@@ -71,7 +77,7 @@ for them. They get examples and tests, not packages. An adapter is created
 only where `net/http` is not enough: Fiber (fasthttp) is the only confirmed
 case. Route metadata via adapters is deferred until a concrete use appears.
 
-## 3. Public API (initial)
+## 3. Public API
 
 ```go
 // Construction never touches the network. It validates, normalises and
@@ -88,6 +94,7 @@ type Config struct {
     Health    HealthConfig    // endpoints, check kind, interval, timeout, TTL...
     Retry     RetryConfig
     Lifecycle LifecycleConfig // AutoRegister, FailFast, StartTimeout, ShutdownTimeout
+    KV        KVConfig        // distributed configuration layout and format
 }
 
 func LoadConfig(path string) (Config, error)   // YAML or JSON, then env overlay
@@ -105,15 +112,20 @@ func (c *Client) State() State                    // Idle, Starting, Running, De
 func (c *Client) Registration() Registration       // effective service ID, address, port
 func (c *Client) Health() *health.Registry         // app reports UP/DEGRADED/DOWN
 func (c *Client) Discovery() *discovery.Client
-func (c *Client) Balancer(s balancer.Strategy) *balancer.Balancer
+func (c *Client) HealthHandler() http.Handler      // manual mounting
+func (c *Client) Discovery() *discovery.Client
+func (c *Client) Balancer(s balancer.Strategy, opts ...balancer.Option) *balancer.Balancer
 func (c *Client) Config() *kvconfig.Loader
-func (c *Client) KV() *kv.Client
+func (c *Client) Register(ctx) error / Deregister(ctx) error     // explicit, no runtime
+func (c *Client) EnableMaintenance(ctx, reason) / DisableMaintenance(ctx)
+func (c *Client) AgentInfo(ctx) (AgentInfo, error)
+func (c *Client) EffectiveConfig() Config
 func (c *Client) Raw() *api.Client
 ```
 
 Differences from the conceptual API in the brief, with reasons:
 
-| Brief                                 | Proposal                                   | Reason |
+| Brief                                 | ConsulX                                    | Reason |
 | ------------------------------------- | ------------------------------------------ | ------ |
 | `consul := consulx.New(...)`          | `consul, err := consulx.New(...)`          | Invalid configuration must be reported, not panic. |
 | `consul.Config().Watch(ctx, &cfg)`    | `kvconfig.Watch[T](ctx, loader, ...)`      | Writing into a caller-owned struct from a watcher goroutine is a data race. The watcher publishes immutable `T` values instead; `Current()` returns the last accepted one. Methods cannot be generic in Go, hence a function. |
@@ -322,38 +334,22 @@ Type, Err}`. All wrap causes with `%w`, compatible with `errors.Is/As`.
 | Benchmarks   | `testing.B`                                      | binding, balancer `Next`, handler wrapper, metadata build |
 | Examples     | runnable `examples/` module, smoke-tested against Docker Consul | net/http, Gin, Echo, Chi, discovery, config, watch, TLS, ACL |
 
-## 14. Implementation plan
+## 14. Implementation status
 
-Each phase ends with `go fmt`, `go vet`, `go test ./...`, `go test -race ./...`
-and, from Phase 3 on, the integration suite.
-
-1. **Foundation**: errors, Config/Option normalisation, defaults, env and file
-   loading, official client construction (address, TLS, token, token file,
-   timeouts), `internal/backoff`, `internal/compat`, logger, metrics
-   interface, ADRs 1, 2, 5, 6, 11.
-2. **HTTP integration**: `health` package, handler wrapper, address resolver,
-   port resolution, lifecycle skeleton (states, Start/Stop/Run/Done/Errors).
-3. **Registration**: definition builder, checks (HTTP/TCP/TTL/gRPC), metadata,
-   service ID, register/deregister, maintenance; first integration tests.
-4. **Reliability**: loss detection, heartbeat, reconnect, re-registration,
-   FailFast, shutdown ordering, leak tests.
-5. **Discovery**: builder, instance model, watches, balancer.
-6. **Configuration**: `kv`, `internal/bind`, `kvconfig` layers, formats, watch.
-7. **Low-level access**: `Raw()` documentation and matrix per API group.
-8. **Observability**: slog events, metrics, `contrib/prometheus`, `contrib/otel`.
-9. **Frameworks**: Gin/Echo/Chi examples and tests; `contrib/fiber`.
-10. **Hardening**: fuzz, benchmarks, compatibility matrix from CI evidence,
-    README, production guide, migration guide, CHANGELOG, `v0.1.0`.
+All ten phases are implemented. Each phase ended with `go vet`, `go test`,
+`go test -race` (run in a Linux container) and, from registration on, the
+integration suite against real agents. See [status.md](status.md) for the
+Definition of Done checklist, known limitations and remaining work.
 
 ## 15. Known risks
 
 * Health endpoint injection requires `New` before `ListenAndServe`; misuse is
-  detectable only partially (documented, and `WithHealthHandler` returns the
-  handler for manual mounting as an alternative).
+  not detectable (documented; `HealthHandler()` allows manual mounting).
 * Address auto-detection cannot be right in every network topology; the
   resolver chain is explicit and logged, and explicit configuration wins.
 * The official client adds fields ahead of agent support (`AI`). The feature
-  gate must be kept up to date with each client upgrade; a test asserts that
-  every non-zero registration field is either gated or known-safe.
+  gate must be kept up to date with each client upgrade;
+  `TestRegistrationFieldsAreClassified` fails when the client gains a
+  registration field that is neither gated nor classified as safe.
 * Enterprise-only paths (namespaces, partitions) cannot be integration tested
-  without an Enterprise license; they will be labelled accordingly.
+  without an Enterprise license; they are labelled accordingly.
