@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"os"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -453,6 +454,27 @@ func TestIsPermanent(t *testing.T) {
 	for err, want := range cases {
 		if got := isPermanent(err); got != want {
 			t.Errorf("isPermanent(%v) = %v", err, got)
+		}
+	}
+}
+
+// TestRegistrationFieldsAreClassified fails when an upgrade of the official
+// client adds a field to AgentServiceRegistration. Agents reject unknown
+// fields (docs/compatibility.md), so every new field must be classified:
+// safe on every supported agent, or gated in checkFeatures.
+func TestRegistrationFieldsAreClassified(t *testing.T) {
+	safe := map[string]bool{
+		"Kind": true, "ID": true, "Name": true, "Tags": true, "Port": true,
+		"Address": true, "SocketPath": true, "TaggedAddresses": true,
+		"EnableTagOverride": true, "Meta": true, "Weights": true, "Check": true,
+		"Checks": true, "Proxy": true, "Connect": true, "Locality": true,
+	}
+	gated := map[string]bool{"Ports": true, "AI": true, "Namespace": true, "Partition": true}
+	typ := reflect.TypeFor[api.AgentServiceRegistration]()
+	for i := range typ.NumField() {
+		name := typ.Field(i).Name
+		if !safe[name] && !gated[name] {
+			t.Errorf("unclassified registration field %q: verify which agents accept it and gate it if needed", name)
 		}
 	}
 }
