@@ -41,8 +41,9 @@ type Agent struct {
 	ttl         []TTLUpdate
 	maintenance map[string]string
 	tokens      []string
-	failAll     int // status code returned for every request; 0 = healthy
-	failNext    int // number of register requests to fail with 500
+	failAll     int           // status code returned for every request; 0 = healthy
+	hang        chan struct{} // non-nil: requests block until closed (silent partition)
+	failNext    int           // number of register requests to fail with 500
 	forbidSelf  bool
 	changed     chan struct{} // closed and replaced on every service change
 	health      map[string][]*api.ServiceEntry
@@ -162,7 +163,15 @@ func (a *Agent) serve(w http.ResponseWriter, r *http.Request) {
 	a.mu.Lock()
 	a.tokens = append(a.tokens, r.Header.Get("X-Consul-Token"))
 	fail := a.failAll
+	hang := a.hang
 	a.mu.Unlock()
+	if hang != nil {
+		select {
+		case <-hang:
+		case <-r.Context().Done():
+			return
+		}
+	}
 	if fail != 0 {
 		http.Error(w, "injected failure", fail)
 		return
@@ -489,5 +498,20 @@ func (a *Agent) kvRead(w http.ResponseWriter, r *http.Request, prefix string) {
 		case <-r.Context().Done():
 			return
 		}
+	}
+}
+
+// SetHanging makes every request block without answering, like a network
+// partition that drops packets instead of resetting connections. Calling it
+// with false releases the blocked requests.
+func (a *Agent) SetHanging(hang bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	switch {
+	case hang && a.hang == nil:
+		a.hang = make(chan struct{})
+	case !hang && a.hang != nil:
+		close(a.hang)
+		a.hang = nil
 	}
 }
