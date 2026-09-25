@@ -117,6 +117,19 @@ func WithStaleGrace(d time.Duration) Option {
 	return func(b *Balancer) { b.grace = d }
 }
 
+// DefaultIdleTimeout is how long a service may go without Next calls before
+// its watch is released. Watching again later only costs waiting for the
+// first response, while keeping every service ever asked about would grow
+// without bound when service names are built dynamically.
+const DefaultIdleTimeout = 15 * time.Minute
+
+// WithIdleTimeout releases the watch of a service that has not been used for
+// d; the next call for it starts a new watch. Zero keeps every watch until
+// Close. Default DefaultIdleTimeout.
+func WithIdleTimeout(d time.Duration) Option {
+	return func(b *Balancer) { b.idle = d }
+}
+
 // Balancer implements LoadBalancer on top of discovery watches. It is safe
 // for concurrent use.
 type Balancer struct {
@@ -127,6 +140,10 @@ type Balancer struct {
 	query    func(*discovery.Client, string) discovery.Query
 	grace    time.Duration
 	now      func() time.Time
+	idle     time.Duration
+
+	janitor sync.Once
+	wg      sync.WaitGroup // the janitor goroutine
 
 	mu       sync.Mutex
 	services map[string]*entry
@@ -134,18 +151,18 @@ type Balancer struct {
 }
 
 type entry struct {
-	watch  *discovery.Watch
-	picker Picker
+	watch    *discovery.Watch
+	picker   Picker
+	lastUsed time.Time // guarded by Balancer.mu
 
 	mu       sync.Mutex
 	last     []discovery.ServiceInstance // last non-empty list
 	lastSeen time.Time
 }
 
-// instances returns the current list, or the last non-empty one while
-// it is younger than grace.
-func (e *entry) instances(grace time.Duration, now time.Time) []discovery.ServiceInstance {
-	list := e.watch.Instances()
+// withGrace returns list, or the last non-empty list while it is younger
+// than grace. Lists are immutable watch snapshots, so keeping one is safe.
+func (e *entry) withGrace(list []discovery.ServiceInstance, grace time.Duration, now time.Time) []discovery.ServiceInstance {
 	if grace <= 0 {
 		return list
 	}
@@ -169,6 +186,7 @@ func New(ctx context.Context, d *discovery.Client, s Strategy, opts ...Option) *
 		ctx: ctx, cancel: cancel, d: d, strategy: s,
 		query:    func(d *discovery.Client, svc string) discovery.Query { return d.Service(svc) },
 		now:      time.Now,
+		idle:     DefaultIdleTimeout,
 		services: map[string]*entry{},
 	}
 	for _, o := range opts {
@@ -181,22 +199,36 @@ func New(ctx context.Context, d *discovery.Client, s Strategy, opts ...Option) *
 // its watch and waits (bounded by ctx) for the initial state. It returns
 // discovery.ErrServiceNotFound when no instance is available.
 func (b *Balancer) Next(ctx context.Context, service string) (discovery.ServiceInstance, error) {
-	e, err := b.entry(service)
-	if err != nil {
-		return discovery.ServiceInstance{}, err
+	var e *entry
+	for attempt := 0; ; attempt++ {
+		var err error
+		if e, err = b.entry(service); err != nil {
+			return discovery.ServiceInstance{}, err
+		}
+		select {
+		case <-e.watch.Ready():
+		case <-ctx.Done():
+			return discovery.ServiceInstance{}, ctx.Err()
+		case <-e.watch.Done():
+			// Released as idle between entry and here: watch it again.
+			if attempt == 0 && !b.isClosed() {
+				continue
+			}
+			return discovery.ServiceInstance{}, ErrClosed
+		}
+		break
 	}
-	select {
-	case <-e.watch.Ready():
-	case <-ctx.Done():
-		return discovery.ServiceInstance{}, ctx.Err()
-	case <-e.watch.Done():
-		return discovery.ServiceInstance{}, ErrClosed
-	}
-	list := e.instances(b.grace, b.now())
-	if len(list) == 0 {
+	now := b.now()
+	inst, ok := e.watch.Pick(func(list []discovery.ServiceInstance) (discovery.ServiceInstance, bool) {
+		if list = e.withGrace(list, b.grace, now); len(list) == 0 {
+			return discovery.ServiceInstance{}, false
+		}
+		return e.picker.Pick(list), true
+	})
+	if !ok {
 		return discovery.ServiceInstance{}, fmt.Errorf("%w: %s", discovery.ErrServiceNotFound, service)
 	}
-	return e.picker.Pick(list), nil
+	return inst, nil
 }
 
 func (b *Balancer) entry(service string) (*entry, error) {
@@ -206,15 +238,61 @@ func (b *Balancer) entry(service string) (*entry, error) {
 		return nil, ErrClosed
 	}
 	if e, ok := b.services[service]; ok {
+		e.lastUsed = b.now()
 		return e, nil
 	}
 	w, err := b.query(b.d, service).Watch(b.ctx)
 	if err != nil {
 		return nil, err
 	}
-	e := &entry{watch: w, picker: b.strategy.NewPicker()}
+	e := &entry{watch: w, picker: b.strategy.NewPicker(), lastUsed: b.now()}
 	b.services[service] = e
+	if b.idle > 0 {
+		b.janitor.Do(func() { b.wg.Go(b.releaseIdle) })
+	}
 	return e, nil
+}
+
+// releaseIdle is the janitor goroutine.
+//
+// Purpose: close the watches of services unused for the idle timeout.
+// Exit condition: the balancer context ends (Close or parent context).
+func (b *Balancer) releaseIdle() {
+	ticker := time.NewTicker(max(b.idle/2, 10*time.Millisecond))
+	defer ticker.Stop()
+	for {
+		select {
+		case <-b.ctx.Done():
+			return
+		case <-ticker.C:
+		}
+		now := b.now()
+		var idle []*entry
+		b.mu.Lock()
+		for name, e := range b.services {
+			if now.Sub(e.lastUsed) >= b.idle {
+				idle = append(idle, e)
+				delete(b.services, name)
+			}
+		}
+		b.mu.Unlock()
+		for _, e := range idle {
+			_ = e.watch.Close()
+		}
+	}
+}
+
+func (b *Balancer) isClosed() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.closed || b.ctx.Err() != nil
+}
+
+// watched returns the number of watched services (tests).
+func (b *Balancer) watched() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return len(b.services)
 }
 
 // Close stops every watch and waits for them to exit.
@@ -230,6 +308,7 @@ func (b *Balancer) Close() error {
 	for _, e := range list {
 		_ = e.watch.Close()
 	}
+	b.wg.Wait()
 	return nil
 }
 
