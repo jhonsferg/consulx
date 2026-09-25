@@ -1,0 +1,40 @@
+# AI tools
+.claude/
+CLAUDE.md
+
+# Editors
+.idea/
+.vscode/
+*.swp
+
+# Build output
+/bin/
+/dist/
+/build/
+*.exe
+*.test
+*.out
+coverage.*
+
+# Dependencies
+vendor/
+
+# Local support files
+docker-compose*.yml
+docker-compose*.yaml
+compose*.yml
+compose*.yaml
+*.sql
+scripts/
+*.log
+tmp/
+
+# Secrets
+.env
+.env.*
+*.pem
+*.key
+*.token
+
+# Fuzz corpora generated locally
+testdata/fuzz/**/cache/
