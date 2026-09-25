@@ -10,7 +10,7 @@ require (
 	github.com/hashicorp/consul/api v1.34.5
 	github.com/jhonsferg/consulx v0.0.0-00010101000000-000000000000
 	github.com/labstack/echo/v5 v5.3.1
-	github.com/moby/moby/api v1.55.0
+	github.com/moby/moby/api v1.56.0
 	github.com/testcontainers/testcontainers-go v0.44.0
 )
 
