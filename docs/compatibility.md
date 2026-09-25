@@ -8,16 +8,14 @@ Status legend:
 
 | Label                 | Meaning                                                                 |
 | --------------------- | ----------------------------------------------------------------------- |
-| `Supported`           | High-level ConsulX API, unit + integration tested.                      |
+| `Supported`           | High-level ConsulX API with tests; the Tests column says whether an integration test against real agents exists or only unit tests. |
 | `Low-level supported` | Reachable through `Client.Raw()` (official `consul/api` client) only.   |
 | `Version dependent`   | Requires a minimum Consul version; ConsulX gates it at runtime.         |
 | `Enterprise feature`  | Only meaningful on Consul Enterprise; never sent to CE by default.      |
 | `Planned`             | Designed, not implemented yet. Do not rely on it.                       |
 | `Not implemented`     | Out of scope for now.                                                   |
 
-> Current project status: **Architecture & Capability Discovery**. Every
-> high-level capability below is `Planned` until its phase lands. The
-> "Evidence" column records what was verified during discovery.
+> Last verified 2026-09-25 with the official client v1.34.5.
 
 ## 1. What "Consul 1.x" and "Consul 2.x" actually are
 
@@ -65,16 +63,18 @@ ConsulX detects the agent version (`GET /v1/agent/self` → `Config.Version`,
 
 ## 2. Consul versions
 
-| Consul | Line status                  | ConsulX status | Notes                                           |
-| ------ | ---------------------------- | -------------- | ----------------------------------------------- |
-| 2.0.x  | Current, supported to 2032   | Planned: test  | Verified reachable, same `/v1` API.             |
-| 1.22.x | Supported                    | Planned: test  | Multi-port, IPv6.                               |
-| 1.21.x | Supported (LTS)              | Planned: test  | No `Ports`.                                     |
-| 1.20.x | Older                        | Planned: test  | Candidate minimum; confirmed only if CI passes. |
-| < 1.20 | -                            | Unsupported    | Not tested; may work for basic features.        |
+The full integration suite (13 scenarios, see [development.md](development.md))
+passed on 2026-09-25 against every version below.
 
-The minimum supported version will be the oldest version for which the full
-integration suite passes. It is not declared until that happens.
+| Consul | Line status                | ConsulX status | Notes |
+| ------ | -------------------------- | -------------- | ----- |
+| 2.0.4  | Current, supported to 2032 | Tested         | Same `/v1` API as 1.x |
+| 1.22.7 | Supported                  | Tested         | Multi-port services, IPv6 |
+| 1.21.5 | Supported (LTS)            | Tested         | No `Ports` (gated) |
+| 1.20.6 | Older                      | Tested         | **Minimum supported version** |
+| < 1.20 | -                          | Unsupported    | Not tested; basic features may work |
+
+Run the matrix with `CONSUL_VERSION=<tag> go test ./...` in `integration/`.
 
 ## 3. Go client
 
@@ -92,79 +92,77 @@ parameter (`Agent.Self`, `Agent.Services`, `Agent.UpdateTTL`,
 
 ## 4. Capability matrix
 
-Columns "1.x" and "2.x" state API availability in Consul, per official docs
-and live checks. "Tests" is filled only when an integration test exists.
+"1.x" and "2.x" state availability in Consul (official docs and live
+checks). "Tests" names the integration test run on 1.20.6, 1.21.5, 1.22.7
+and 2.0.4; "unit" means unit tests only.
 
 ### 4.1 Registration and health
 
-| Feature                          | High level | Low level | 1.x      | 2.x | OSS | Ent | Tests | Notes |
-| -------------------------------- | ---------- | --------- | -------- | --- | --- | --- | ----- | ----- |
-| Agent service register           | Planned    | ✓         | ✓        | ✓   | ✓   | ✓   | -     | `PUT /v1/agent/service/register`; verified 1.21.5/1.22.7/2.0.4 |
-| Agent service deregister         | Planned    | ✓         | ✓        | ✓   | ✓   | ✓   | -     | `PUT /v1/agent/service/deregister/:id` |
-| `replace-existing-checks`        | Planned    | ✓         | ✓        | ✓   | ✓   | ✓   | -     | Used for idempotent re-registration |
-| Tags, Meta, TaggedAddresses      | Planned    | ✓         | ✓        | ✓   | ✓   | ✓   | -     | |
-| Weights                          | Planned    | ✓         | ✓        | ✓   | ✓   | ✓   | -     | |
-| Multi-port (`Ports`)             | Planned    | ✓         | ≥ 1.22   | ✓   | ✓   | ✓   | -     | Version dependent. Registration works on CE (verified); mesh routing by port is Enterprise |
-| IPv6 service address             | Planned    | ✓         | ≥ 1.22   | ✓   | ✓   | ✓   | -     | Version dependent |
-| `AI` service block               | No         | ✓         | ✗        | ✗ (2.0.4) | ? | ? | - | Present in client v1.34.5, rejected by 2.0.4. Not exposed |
-| Service maintenance              | Planned    | ✓         | ✓        | ✓   | ✓   | ✓   | -     | |
-| HTTP check                       | Planned    | ✓         | ✓        | ✓   | ✓   | ✓   | -     | 2xx passing, 429 warning, other critical |
-| TCP / TCP+TLS check              | Planned    | ✓         | ✓        | ✓   | ✓   | ✓   | -     | |
-| TTL check + heartbeat            | Planned    | ✓         | ✓        | ✓   | ✓   | ✓   | -     | |
-| gRPC check                       | Planned    | ✓         | ✓        | ✓   | ✓   | ✓   | -     | Standard gRPC health protocol |
-| UDP, H2PING, OSService, Docker, Alias checks | No | ✓ | ✓       | ✓   | ✓   | ✓   | -     | Low-level supported |
-| Script check (`Args`)            | No         | ✓         | ✓        | ✓   | ✓   | ✓   | -     | Requires agent `enable_script_checks`; security sensitive, low-level only |
-| `DeregisterCriticalServiceAfter` | Planned    | ✓         | ✓        | ✓   | ✓   | ✓   | -     | Consul minimum is 1 minute |
-| Namespace / Partition on service | Planned    | ✓         | ✓        | ✓   | ✗   | ✓   | -     | Enterprise feature; never sent unless configured |
-| Connect native / sidecar         | Planned    | ✓         | ✓        | ✓   | ✓   | ✓   | -     | Pass-through of official types |
+| Feature                          | Status              | 1.x    | 2.x | OSS | Ent | Tests |
+| -------------------------------- | ------------------- | ------ | --- | --- | --- | ----- |
+| Agent service register           | Supported           | ✓      | ✓   | ✓   | ✓   | `TestRegistrationLifecycleWithHTTPCheck` |
+| Agent service deregister         | Supported           | ✓      | ✓   | ✓   | ✓   | same, `TestACLEnforced` |
+| `replace-existing-checks`        | Supported           | ✓      | ✓   | ✓   | ✓   | unit |
+| Tags, Meta, Weights              | Supported           | ✓      | ✓   | ✓   | ✓   | `TestRegistrationLifecycleWithHTTPCheck`, unit |
+| TaggedAddresses                  | Supported           | ✓      | ✓   | ✓   | ✓   | unit |
+| Multi-port (`Ports`)             | Version dependent   | ≥ 1.22 | ✓   | ✓   | ✓   | `TestFeatureGateMatchesAgent` (gate agrees with the agent on every version) |
+| IPv6 service address             | Version dependent   | ≥ 1.22 | ✓   | ✓   | ✓   | unit |
+| `AI` service block               | Rejected by ConsulX | ✗      | ✗ (2.0.4) | - | - | unit (gate) |
+| Service maintenance              | Supported           | ✓      | ✓   | ✓   | ✓   | `TestMaintenanceMode` |
+| HTTP check                       | Supported           | ✓      | ✓   | ✓   | ✓   | `TestRegistrationLifecycleWithHTTPCheck`, `TestFrameworks` |
+| TTL check + heartbeat            | Supported           | ✓      | ✓   | ✓   | ✓   | `TestTTLHeartbeat` |
+| TCP / TCP+TLS check              | Supported           | ✓      | ✓   | ✓   | ✓   | unit (definition) |
+| gRPC check                       | Supported           | ✓      | ✓   | ✓   | ✓   | unit (definition) |
+| UDP, H2PING, OSService, Docker, Alias, Script checks | Low-level supported | ✓ | ✓ | ✓ | ✓ | via `WithRegistrationHook` |
+| `DeregisterCriticalServiceAfter` | Supported           | ✓      | ✓   | ✓   | ✓   | `TestCrashProtectionReapsCriticalService` |
+| Re-registration after agent restart | Supported        | ✓      | ✓   | ✓   | ✓   | `TestReconnectAndReRegister` |
+| Namespace / Partition on service | Enterprise feature  | ✓      | ✓   | ✗   | ✓   | unit (gate); not integration tested |
+| Connect native / sidecar, proxy  | Low-level supported | ✓      | ✓   | ✓   | ✓   | via `WithRegistrationHook`; not integration tested |
 
 ### 4.2 Discovery
 
-| Feature                       | High level | Low level | 1.x | 2.x | OSS | Ent | Tests | Notes |
-| ----------------------------- | ---------- | --------- | --- | --- | --- | --- | ----- | ----- |
-| Healthy instances by name     | Planned    | ✓         | ✓   | ✓   | ✓   | ✓   | -     | `GET /v1/health/service/:name?passing` |
-| Tag filtering (multi)         | Planned    | ✓         | ✓   | ✓   | ✓   | ✓   | -     | |
-| Filter expressions            | Planned    | ✓         | ✓   | ✓   | ✓   | ✓   | -     | `filter=` |
-| Datacenter                    | Planned    | ✓         | ✓   | ✓   | ✓   | ✓   | -     | |
-| Near / consistency / stale    | Planned    | ✓         | ✓   | ✓   | ✓   | ✓   | -     | |
-| Blocking-query watch          | Planned    | ✓         | ✓   | ✓   | ✓   | ✓   | -     | |
-| Load balancing (RR/random/weighted) | Planned | n/a    | ✓   | ✓   | ✓   | ✓   | -     | Client side |
-| Prepared queries              | No         | ✓         | ✓   | ✓   | ✓   | ✓   | -     | Low-level supported |
-| Sameness groups / peering     | No         | ✓         | ✓   | ✓   | partial | ✓ | -  | Low-level supported |
+| Feature                       | Status              | 1.x | 2.x | OSS | Ent | Tests |
+| ----------------------------- | ------------------- | --- | --- | --- | --- | ----- |
+| Healthy instances by name     | Supported           | ✓   | ✓   | ✓   | ✓   | `TestDiscoveryWatchAndBalancer` |
+| Tag filtering                 | Supported           | ✓   | ✓   | ✓   | ✓   | same |
+| Meta and filter expressions   | Supported           | ✓   | ✓   | ✓   | ✓   | unit |
+| Datacenter, Near, consistency | Supported           | ✓   | ✓   | ✓   | ✓   | unit (parameters sent) |
+| Blocking-query watch          | Supported           | ✓   | ✓   | ✓   | ✓   | `TestDiscoveryWatchAndBalancer` |
+| Load balancing                | Supported           | ✓   | ✓   | ✓   | ✓   | same, unit |
+| Prepared queries, peering, sameness groups | Low-level supported | ✓ | ✓ | partial | ✓ | - |
 
 ### 4.3 KV and configuration
 
-| Feature                                 | High level | Low level | 1.x | 2.x | OSS | Ent | Tests | Notes |
-| --------------------------------------- | ---------- | --------- | --- | --- | --- | --- | ----- | ----- |
-| Get / Put / Delete / DeleteTree / List / Keys | Planned | ✓   | ✓   | ✓   | ✓   | ✓   | -     | Verified PUT/GET 1.22.7 & 2.0.4 |
-| CAS / Acquire / Release                 | Planned    | ✓         | ✓   | ✓   | ✓   | ✓   | -     | |
-| Transactions                            | No         | ✓         | ✓   | ✓   | ✓   | ✓   | -     | Low-level supported |
-| Layered config (application/service/profile) | Planned | n/a  | ✓   | ✓   | ✓   | ✓   | -     | |
-| Struct binding                          | Planned    | n/a       | ✓   | ✓   | ✓   | ✓   | -     | |
-| Dynamic config (watch + validate)       | Planned    | n/a       | ✓   | ✓   | ✓   | ✓   | -     | |
+| Feature                                 | Status              | 1.x | 2.x | OSS | Ent | Tests |
+| --------------------------------------- | ------------------- | --- | --- | --- | --- | ----- |
+| Layered configuration with profiles     | Supported           | ✓   | ✓   | ✓   | ✓   | `TestDistributedConfiguration` |
+| Key/value and YAML formats              | Supported           | ✓   | ✓   | ✓   | ✓   | same, `TestYAMLConfiguration` |
+| JSON format                             | Supported           | ✓   | ✓   | ✓   | ✓   | unit |
+| Struct binding                          | Supported           | ✓   | ✓   | ✓   | ✓   | integration, unit, fuzz |
+| Dynamic configuration (validated)       | Supported           | ✓   | ✓   | ✓   | ✓   | `TestDistributedConfiguration` |
+| KV Get / Put / Delete / List / Keys / CAS / Acquire / Release / Txn | Low-level supported | ✓ | ✓ | ✓ | ✓ | through `Raw().KV()` |
 
 ### 4.4 Security and tenancy
 
-| Feature                         | High level | Low level | 1.x | 2.x | OSS | Ent | Tests | Notes |
-| ------------------------------- | ---------- | --------- | --- | --- | --- | --- | ----- | ----- |
-| ACL token / token file          | Planned    | ✓         | ✓   | ✓   | ✓   | ✓   | -     | |
-| ACL management (tokens, policies, roles, auth methods, binding rules) | No | ✓ | ✓ | ✓ | ✓ | ✓ | - | Low-level supported |
-| TLS (CA, client cert, SNI)      | Planned    | ✓         | ✓   | ✓   | ✓   | ✓   | -     | |
-| Namespaces                      | Planned    | ✓         | ✓   | ✓   | ✗   | ✓   | -     | Enterprise feature; `GET /v1/namespaces` is 404 on CE (verified) |
-| Admin partitions                | Planned    | ✓         | ✓   | ✓   | ✗   | ✓   | -     | Enterprise feature; `GET /v1/partitions` is 404 on CE (verified) |
+| Feature                         | Status              | 1.x | 2.x | OSS | Ent | Tests |
+| ------------------------------- | ------------------- | --- | --- | --- | --- | ----- |
+| ACL token                       | Supported           | ✓   | ✓   | ✓   | ✓   | `TestACLEnforced` |
+| ACL token file                  | Supported           | ✓   | ✓   | ✓   | ✓   | unit |
+| ACL management (tokens, policies, roles, auth methods, binding rules) | Low-level supported | ✓ | ✓ | ✓ | ✓ | used through `Raw()` by `TestACLEnforced` |
+| TLS, mutual TLS                 | Supported           | ✓   | ✓   | ✓   | ✓   | `TestTLS` |
+| Namespaces                      | Enterprise feature  | ✓   | ✓   | ✗   | ✓   | unit (gate); `GET /v1/namespaces` is 404 on CE (verified) |
+| Admin partitions                | Enterprise feature  | ✓   | ✓   | ✗   | ✓   | unit (gate); `GET /v1/partitions` is 404 on CE (verified) |
 
 ### 4.5 Other Consul APIs
 
-All reachable through `Client.Raw()`; ConsulX adds no abstraction unless a
-concrete need appears. Status: `Low-level supported` once `Raw()` ships.
-
-Agent (self, members, metrics, monitor, reload, tokens), Catalog, Health,
-Session, Lock/Semaphore helpers, Event, Prepared Query, Coordinate, Status,
-Operator (raft, autopilot, keyring, area, license, usage, utilization,
-segment, audit), Snapshot, Txn, Connect CA and intentions, Config Entries
-(verified `GET /v1/config/service-defaults` = 200 on 1.22.7 and 2.0.4),
-Discovery Chain, Peering, Exported/Imported services, Namespaces, Partitions,
-Debug.
+Low-level supported through `Client.Raw()`, which shares ConsulX's address,
+token, TLS and datacenter: Agent (self, members, metrics, monitor, reload,
+tokens), Catalog, Health, Session, Lock/Semaphore helpers, Event, Prepared
+Query, Coordinate, Status, Operator (raft, autopilot, keyring, area,
+license, usage, utilization, segment, audit), Snapshot, Txn, Connect CA and
+intentions, Config Entries (verified `GET /v1/config/service-defaults` =
+200 on 1.22.7 and 2.0.4), Discovery Chain, Peering, Exported/Imported
+services, Namespaces, Partitions, Debug.
 
 ## 5. Sources
 
