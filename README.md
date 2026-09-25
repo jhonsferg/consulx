@@ -74,7 +74,7 @@ Requires Go 1.26.7 or later (the minimum of the official Consul client).
 Start a local agent:
 
 ```sh
-docker run -d --name consul -p 8500:8500 hashicorp/consul:1.22 agent -dev -client=0.0.0.0
+docker run -d --name consul -p 8500:8500 hashicorp/consul:1.22 agent -dev "-client=0.0.0.0"
 ```
 
 Integrate your server:
@@ -263,7 +263,8 @@ current := w.Current()              // always a complete, validated value
 
 The profile defaults to `Service.Environment`. Formats: key/value (default),
 YAML or JSON documents under `data` (`WithKVConfig`). Invalid changes are
-rejected, reported on `Errors()` and never applied.
+rejected, reported once on `Errors()` and never applied; a reload that
+cannot read Consul is reported there too, with a different message.
 
 **ConsulX's own configuration** can come from code, a file and the
 environment. Precedence, lowest first: defaults → `LoadConfig(file)` →
@@ -411,7 +412,9 @@ version. Details and evidence: [docs/compatibility.md](docs/compatibility.md).
 ## Examples
 
 Runnable programs in [examples/](examples): `basic`, `gin`, `echo`, `chi`,
-`discovery`, `config`, `health`.
+`discovery`, `config`, `health`. `discovery` calls the service that `basic`
+registers (tag `v1`), and `config` reads the KV layout shown above, so run
+`basic` or seed the keys first.
 
 ## Development
 
