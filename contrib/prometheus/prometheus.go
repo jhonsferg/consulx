@@ -9,6 +9,7 @@
 package prometheus
 
 import (
+	"errors"
 	"strings"
 	"sync"
 	"time"
@@ -77,7 +78,8 @@ func helpFor(name string) string {
 // (for example by another Metrics sharing the registry).
 func register[C prom.Collector](reg prom.Registerer, c C) C {
 	if err := reg.Register(c); err != nil {
-		if are, ok := err.(prom.AlreadyRegisteredError); ok {
+		var are prom.AlreadyRegisteredError
+		if errors.As(err, &are) {
 			if existing, ok := are.ExistingCollector.(C); ok {
 				return existing
 			}
