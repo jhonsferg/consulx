@@ -1,5 +1,19 @@
 # ConsulX
 
+[![CI](https://github.com/jhonsferg/consulx/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/jhonsferg/consulx/actions/workflows/ci.yml)
+[![Security](https://github.com/jhonsferg/consulx/actions/workflows/security.yml/badge.svg?branch=main)](https://github.com/jhonsferg/consulx/actions/workflows/security.yml)
+[![Go Reference](https://pkg.go.dev/badge/github.com/jhonsferg/consulx.svg)](https://pkg.go.dev/github.com/jhonsferg/consulx)
+[![Release](https://img.shields.io/github/v/release/jhonsferg/consulx?sort=semver)](https://github.com/jhonsferg/consulx/releases)
+[![Go version](https://img.shields.io/github/go-mod/go-version/jhonsferg/consulx)](go.mod)
+[![License: MIT](https://img.shields.io/github/license/jhonsferg/consulx)](LICENSE)
+
+![Go](https://img.shields.io/badge/Go-00ADD8?logo=go&logoColor=white)
+![Consul](https://img.shields.io/badge/Consul-1.20%20%7C%201.21%20%7C%201.22%20%7C%202.0-E03875?logo=consul&logoColor=white)
+![OpenTelemetry](https://img.shields.io/badge/OpenTelemetry-000000?logo=opentelemetry&logoColor=white)
+![Prometheus](https://img.shields.io/badge/Prometheus-E6522C?logo=prometheus&logoColor=white)
+![Docker](https://img.shields.io/badge/Testcontainers%20%2B%20Docker-2496ED?logo=docker&logoColor=white)
+![GitHub Actions](https://img.shields.io/badge/GitHub%20Actions-2088FF?logo=githubactions&logoColor=white)
+
 The Go-native Consul integration layer for production microservices.
 
 ConsulX sits on top of the official client (`github.com/hashicorp/consul/api`)
