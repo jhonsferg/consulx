@@ -18,7 +18,8 @@ func TestDiscoveryAndBalancerThroughClient(t *testing.T) {
 	})
 	var m countingMetrics
 	c := agentClient(t, a, WithAutoRegister(false), WithMetrics(&m))
-	if c.Discovery() != c.Discovery() {
+	first, second := c.Discovery(), c.Discovery()
+	if first != second {
 		t.Fatal("Discovery must return a shared client")
 	}
 	inst, err := c.Discovery().Service("payments").First(t.Context())
