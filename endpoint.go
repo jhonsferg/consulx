@@ -30,7 +30,7 @@ type endpoint struct {
 // IP routing to the Consul agent, and the first private interface address.
 func (c *Client) resolveEndpoint(ctx context.Context) (endpoint, error) {
 	var ep endpoint
-	port, portSource, err := c.resolvePort()
+	port, portSource, err := c.resolvePort(ctx)
 	if err != nil {
 		return ep, err
 	}
@@ -57,7 +57,7 @@ func (c *Client) resolveEndpoint(ctx context.Context) (endpoint, error) {
 		if name := c.cfg.Service.AddressEnv; name != "" {
 			chain = append(chain, source{"env " + name, EnvAddress(name)})
 		}
-		if host := c.serverHost(); host != "" {
+		if host := c.serverHost(ctx); host != "" {
 			chain = append(chain, source{"server", StaticAddress(host)})
 		}
 		if target := consulTarget(c.cfg.Consul); target != "" {
@@ -89,7 +89,7 @@ func (c *Client) resolveEndpoint(ctx context.Context) (endpoint, error) {
 }
 
 // resolvePort returns the registered port and where it came from.
-func (c *Client) resolvePort() (int, string, error) {
+func (c *Client) resolvePort(ctx context.Context) (int, string, error) {
 	if p := c.cfg.Service.Port; p != 0 {
 		return p, "config", nil
 	}
@@ -104,7 +104,7 @@ func (c *Client) resolvePort() (int, string, error) {
 		}
 	}
 	if c.server != nil {
-		_, port, err := netaddr.SplitHostPort(c.server.Addr)
+		_, port, err := netaddr.ParseListenAddress(ctx, c.server.Addr)
 		if err != nil {
 			return 0, "", &ConfigError{Field: "Server.Addr", Reason: err.Error()}
 		}
@@ -118,11 +118,11 @@ func (c *Client) resolvePort() (int, string, error) {
 
 // serverHost returns the host part of the server address when it is a
 // concrete host usable by others, or "".
-func (c *Client) serverHost() string {
+func (c *Client) serverHost(ctx context.Context) string {
 	if c.server == nil {
 		return ""
 	}
-	host, _, err := netaddr.SplitHostPort(c.server.Addr)
+	host, _, err := netaddr.ParseListenAddress(ctx, c.server.Addr)
 	if err != nil || netaddr.IsWildcard(host) {
 		return ""
 	}
