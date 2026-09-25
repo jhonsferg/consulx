@@ -107,10 +107,13 @@ func (w *Watch) run(ctx context.Context, q Query) {
 		if limiter.Wait(ctx) != nil {
 			return
 		}
-		opts := q.options(ctx)
+		// Bound each blocking request (see blocking.RequestTimeout).
+		rctx, cancel := context.WithTimeout(ctx, blocking.RequestTimeout(c.cfg.WaitTime, c.cfg.RequestTimeout))
+		opts := q.options(rctx)
 		opts.WaitIndex = index
 		opts.WaitTime = c.cfg.WaitTime
 		instances, meta, err := q.fetch(opts)
+		cancel()
 		c.cfg.Observe("watch", err)
 		if ctx.Err() != nil {
 			return
