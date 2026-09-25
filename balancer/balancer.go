@@ -16,6 +16,7 @@ import (
 	"math/rand/v2"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/jhonsferg/consulx/discovery"
 )
@@ -105,6 +106,17 @@ func WithQuery(fn func(d *discovery.Client, service string) discovery.Query) Opt
 	return func(b *Balancer) { b.query = fn }
 }
 
+// WithStaleGrace keeps serving the last non-empty instance list for up to d
+// when the current list becomes empty. A restarted Consul agent reports its
+// services critical until their checks run again, which empties the list
+// for a few seconds although every instance is alive; the grace period
+// bridges that gap. If the instances really are gone, calls fail with
+// connection errors during the grace period instead of ErrServiceNotFound.
+// Zero (the default) disables it.
+func WithStaleGrace(d time.Duration) Option {
+	return func(b *Balancer) { b.grace = d }
+}
+
 // Balancer implements LoadBalancer on top of discovery watches. It is safe
 // for concurrent use.
 type Balancer struct {
@@ -113,6 +125,8 @@ type Balancer struct {
 	d        *discovery.Client
 	strategy Strategy
 	query    func(*discovery.Client, string) discovery.Query
+	grace    time.Duration
+	now      func() time.Time
 
 	mu       sync.Mutex
 	services map[string]*entry
@@ -122,6 +136,29 @@ type Balancer struct {
 type entry struct {
 	watch  *discovery.Watch
 	picker Picker
+
+	mu       sync.Mutex
+	last     []discovery.ServiceInstance // last non-empty list
+	lastSeen time.Time
+}
+
+// instances returns the current list, or the last non-empty one while
+// it is younger than grace.
+func (e *entry) instances(grace time.Duration, now time.Time) []discovery.ServiceInstance {
+	list := e.watch.Instances()
+	if grace <= 0 {
+		return list
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if len(list) > 0 {
+		e.last, e.lastSeen = list, now
+		return list
+	}
+	if e.last != nil && now.Sub(e.lastSeen) <= grace {
+		return e.last
+	}
+	return list
 }
 
 // New creates a Balancer. Its watches stop when ctx is done or Close is
@@ -131,6 +168,7 @@ func New(ctx context.Context, d *discovery.Client, s Strategy, opts ...Option) *
 	b := &Balancer{
 		ctx: ctx, cancel: cancel, d: d, strategy: s,
 		query:    func(d *discovery.Client, svc string) discovery.Query { return d.Service(svc) },
+		now:      time.Now,
 		services: map[string]*entry{},
 	}
 	for _, o := range opts {
@@ -154,7 +192,7 @@ func (b *Balancer) Next(ctx context.Context, service string) (discovery.ServiceI
 	case <-e.watch.Done():
 		return discovery.ServiceInstance{}, ErrClosed
 	}
-	list := e.watch.Instances()
+	list := e.instances(b.grace, b.now())
 	if len(list) == 0 {
 		return discovery.ServiceInstance{}, fmt.Errorf("%w: %s", discovery.ErrServiceNotFound, service)
 	}
