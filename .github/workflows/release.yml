@@ -1,0 +1,168 @@
+name: Release
+
+# Automatic release after a merge to main, once every required workflow
+# passed for that commit:
+#
+#   PR → CI + Security on the PR → merge → CI + Security on main
+#     → (this workflow) version, tags, GitHub release → pkg.go.dev
+#
+# The next version is derived from Conventional Commit subjects since the
+# last tag of each module:
+#   feat                     → minor
+#   fix, refactor            → patch
+#   "!" or BREAKING CHANGE   → major (minor while the module is v0)
+#   docs, style, chore only  → no release
+on:
+  workflow_run:
+    workflows: [CI, Security]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+# One release at a time; a run for an older commit never overtakes a newer one.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  # Workflows that must all succeed on the commit before releasing.
+  REQUIRED_WORKFLOWS: "CI Security"
+
+jobs:
+  release:
+    name: Release
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Check that every required workflow passed
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          ready=true
+          for wf in $REQUIRED_WORKFLOWS; do
+            conclusion=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${SHA}&event=push&per_page=50" \
+              --jq "[.workflow_runs[] | select(.name == \"$wf\")] | sort_by(.run_number) | last | .conclusion // \"missing\"")
+            echo "$wf: $conclusion"
+            [ "$conclusion" = "success" ] || ready=false
+          done
+          # Not ready: the last workflow to finish triggers this job again.
+          echo "ready=$ready" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v7
+        if: steps.gate.outputs.ready == 'true'
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+
+      - name: Only release the tip of main
+        if: steps.gate.outputs.ready == 'true'
+        id: tip
+        run: |
+          git fetch origin main
+          if [ "$(git rev-parse origin/main)" = "${{ github.event.workflow_run.head_sha }}" ]; then
+            echo "tip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "A newer commit is on main; it will be released by its own run."
+            echo "tip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Compute versions and create tags
+        if: steps.gate.outputs.ready == 'true' && steps.tip.outputs.tip == 'true'
+        id: tags
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # bump <last-version> <git log range> <pathspec...>
+          next_version() {
+            local last="$1"; shift
+            local range="$1"; shift
+            local log major minor patch bump=""
+            log=$(git log --format='%s%n%b%n--end--' "$range" -- "$@")
+            if echo "$log" | grep -qE '^[a-z]+(\([^)]*\))?!:|^BREAKING CHANGE'; then bump="major"
+            elif echo "$log" | grep -qE '^feat(\([^)]*\))?:'; then bump="minor"
+            elif echo "$log" | grep -qE '^(fix|refactor)(\([^)]*\))?:'; then bump="patch"
+            fi
+            [ -z "$bump" ] && return 0
+            IFS=. read -r major minor patch <<< "${last#v}"
+            case "$bump" in
+              major) if [ "$major" = 0 ]; then minor=$((minor+1)); patch=0; else major=$((major+1)); minor=0; patch=0; fi ;;
+              minor) minor=$((minor+1)); patch=0 ;;
+              patch) patch=$((patch+1)) ;;
+            esac
+            echo "v${major}.${minor}.${patch}"
+          }
+
+          created=()
+          # Root module: everything except other modules, docs and CI files.
+          last=$(git tag --list 'v[0-9]*' --sort=-v:refname | head -1)
+          range=${last:+$last..}HEAD
+          version=$(next_version "${last:-v0.0.0}" "$range" . \
+            ':(exclude)contrib' ':(exclude)examples' ':(exclude)integration' \
+            ':(exclude)docs' ':(exclude).github' ':(exclude)*.md')
+          if [ -n "$version" ]; then
+            git tag -a "$version" -m "consulx $version"
+            created+=("$version")
+            echo "root=$version" >> "$GITHUB_OUTPUT"
+            echo "root_last=${last}" >> "$GITHUB_OUTPUT"
+          fi
+
+          # Published sub-modules are versioned independently.
+          for m in contrib/prometheus contrib/otel contrib/fiber; do
+            last=$(git tag --list "$m/v[0-9]*" --sort=-v:refname | head -1)
+            range=${last:+$last..}HEAD
+            last_version=${last#"$m/"}
+            version=$(next_version "${last_version:-v0.0.0}" "$range" "$m")
+            if [ -n "$version" ]; then
+              git tag -a "$m/$version" -m "$m $version"
+              created+=("$m/$version")
+            fi
+          done
+
+          if [ ${#created[@]} -eq 0 ]; then
+            echo "No releasable changes (docs, style or chore only)."
+            exit 0
+          fi
+          git push origin "${created[@]}"
+          echo "tags=${created[*]}" >> "$GITHUB_OUTPUT"
+          echo "Created: ${created[*]}"
+
+      - name: GitHub release
+        if: steps.tags.outputs.root != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          args=(--title "${{ steps.tags.outputs.root }}" --generate-notes --verify-tag)
+          if [ -n "${{ steps.tags.outputs.root_last }}" ]; then
+            args+=(--notes-start-tag "${{ steps.tags.outputs.root_last }}")
+          fi
+          gh release create "${{ steps.tags.outputs.root }}" "${args[@]}"
+
+      - name: Notify the Go module proxy and pkg.go.dev
+        if: steps.tags.outputs.tags != ''
+        run: |
+          # Requesting a version through proxy.golang.org caches it and makes
+          # pkg.go.dev index it (https://go.dev/doc/modules/publishing).
+          for tag in ${{ steps.tags.outputs.tags }}; do
+            case "$tag" in
+              v*) module="github.com/${GITHUB_REPOSITORY,,}"; version="$tag" ;;
+              *)  module="github.com/${GITHUB_REPOSITORY,,}/${tag%/v*}"; version="v${tag##*/v}" ;;
+            esac
+            for _ in 1 2 3 4 5; do
+              if curl -fsS "https://proxy.golang.org/${module}/@v/${version}.info"; then
+                echo; echo "Published ${module}@${version}"; break
+              fi
+              echo "proxy not ready for ${module}@${version}, retrying"; sleep 30
+            done
+            curl -fsS -X POST "https://pkg.go.dev/fetch/${module}@${version}" || true
+          done
