@@ -79,7 +79,7 @@ func main() {
 			slog.Warn("call failed", "instance", inst.ID, "error", err)
 			continue
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		fmt.Printf("%s answered %d\n", inst.ID, resp.StatusCode)
 	}
 }
