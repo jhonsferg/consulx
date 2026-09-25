@@ -233,6 +233,7 @@ func (c *Client) shutdown(ctx context.Context) error {
 
 // finish moves to the terminal state and releases resources.
 func (c *Client) finish() {
+	c.closeServices()
 	if c.transport != nil {
 		c.transport.CloseIdleConnections()
 	}
