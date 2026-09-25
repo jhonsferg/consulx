@@ -577,6 +577,7 @@ func (c *Config) validate() error {
 	if len(s.Ports) > 0 && s.Port != 0 {
 		add("Service.Ports", "Port and Ports are mutually exclusive in Consul; mark the main port as Default instead")
 	}
+	validateMeta(s.Meta, add)
 	if s.Weights != nil && (s.Weights.Passing < 1 || s.Weights.Warning < 0) {
 		add("Service.Weights", "Passing must be >= 1 and Warning >= 0")
 	}
@@ -680,6 +681,38 @@ func validatePorts(ports []ServicePort, add func(string, string)) {
 	}
 	if defaults != 1 {
 		add("Service.Ports", "exactly one port must be marked Default")
+	}
+}
+
+// Consul service metadata limits (agent/structs: validateMetaPair).
+const (
+	metaMaxPairs       = 64
+	metaKeyMaxLength   = 128
+	metaValueMaxLength = 512
+	metaReservedPrefix = "consul-"
+)
+
+// autoMetaReserve leaves room for the metadata ConsulX adds itself.
+const autoMetaReserve = 8
+
+func validateMeta(meta map[string]string, add func(string, string)) {
+	if len(meta) > metaMaxPairs-autoMetaReserve {
+		add("Service.Meta", "at most 56 pairs (Consul allows 64; ConsulX reserves 8 for automatic metadata)")
+	}
+	for k, v := range meta {
+		switch {
+		case k == "" || len(k) > metaKeyMaxLength:
+			add("Service.Meta", "keys must have 1 to 128 characters")
+		case strings.HasPrefix(k, metaReservedPrefix):
+			add("Service.Meta", "key "+k+` uses the prefix "consul-", reserved by Consul`)
+		case strings.IndexFunc(k, func(r rune) bool {
+			return (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') && r != '_' && r != '-'
+		}) >= 0:
+			add("Service.Meta", "key "+k+" may only contain A-Z, a-z, 0-9, '_' and '-'")
+		}
+		if len(v) > metaValueMaxLength {
+			add("Service.Meta", "value of "+k+" exceeds 512 characters")
+		}
 	}
 }
 
