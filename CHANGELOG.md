@@ -50,8 +50,17 @@ contain breaking changes, always listed under "Breaking".
 - Release notes are generated from Conventional Commits, grouped by type,
   with install instructions and links; contrib modules get their own
   releases.
-- README badges for build, security, API reference, release, Go version,
-  licence and technologies.
+- Releases are published only when Go files change (`*.go`, `go.mod`,
+  `go.sum`); documentation and CI changes ship with the next code release.
+- README rewritten as a complete guide: centred header with large badges
+  (build, security, API reference, release, Go version, licence,
+  technologies), numbered sections with a matching table of contents, usage
+  guide, twelve use cases (net/http, Gin, Echo, Chi, Fiber, gRPC, workers,
+  gateways, configuration-only jobs, multi-port, management port, secure
+  production, observability, testing), deployment environments (local,
+  Docker Compose, Kubernetes, VMs, Enterprise) and full configuration,
+  observability and error references. Every code sample is compiled
+  against the real API.
 
 ## [0.1.0] - 2026-09-25
 
