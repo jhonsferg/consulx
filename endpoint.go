@@ -35,13 +35,7 @@ func (c *Client) resolveEndpoint(ctx context.Context) (endpoint, error) {
 		return ep, err
 	}
 	ep.Port, ep.PortSource = port, portSource
-	ep.Scheme = c.cfg.Service.Scheme
-	if ep.Scheme == "" {
-		ep.Scheme = "http"
-		if c.server != nil && c.server.TLSConfig != nil {
-			ep.Scheme = "https"
-		}
-	}
+	ep.Scheme = c.scheme
 
 	allowLoop := c.cfg.Service.AllowLoopback
 	if addr := c.cfg.Service.Address; addr != "" {
