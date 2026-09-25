@@ -2,10 +2,16 @@
 
 ## Flow
 
-```text
-branch ──► pull request ──► CI + Security (on the PR) ──► review ──► merge commit
-                                                                         │
-                         pkg.go.dev ◄── proxy.golang.org ◄── Release ◄── CI + Security (on main)
+```mermaid
+flowchart LR
+    branch["Branch"] --> pr["Pull request"]
+    pr --> prchecks["CI and Security<br/>on the pull request"]
+    prchecks --> review["Review"]
+    review --> merge["Merge commit<br/>into main"]
+    merge --> mainchecks["CI and Security<br/>on main"]
+    mainchecks --> release["Release workflow<br/>version, tags, notes"]
+    release --> proxy["proxy.golang.org"]
+    proxy --> pkg["pkg.go.dev"]
 ```
 
 1. Every change is made on a branch (`feat/...`, `fix/...`).
