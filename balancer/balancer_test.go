@@ -3,6 +3,8 @@ package balancer
 import (
 	"context"
 	"errors"
+	"fmt"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -256,5 +258,97 @@ func TestNoGraceByDefault(t *testing.T) {
 			t.Fatal("without grace an empty list must yield ErrServiceNotFound")
 		}
 		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+// Services asked about once must not keep a watch (a goroutine and a
+// connection) forever: callers that build service names dynamically would
+// otherwise grow without bound.
+func TestIdleServicesAreReleased(t *testing.T) {
+	a, d := setup(t)
+	for _, s := range []string{"s1", "s2", "s3"} {
+		a.SetHealth(s, healthEntry(s+"-1"))
+	}
+	b := New(t.Context(), d, RoundRobin(), WithIdleTimeout(100*time.Millisecond))
+	defer b.Close()
+	before := runtime.NumGoroutine()
+	for _, s := range []string{"s1", "s2", "s3"} {
+		if _, err := b.Next(t.Context(), s); err != nil {
+			t.Fatal(err)
+		}
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for b.watched() != 0 {
+		if time.Now().After(deadline) {
+			t.Fatalf("idle services not released: %d left", b.watched())
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if grown := runtime.NumGoroutine() - before; grown > 1 { // the janitor itself
+		t.Fatalf("released watches left %d goroutines", grown)
+	}
+	// A released service is watched again on demand.
+	if inst, err := b.Next(t.Context(), "s2"); err != nil || inst.ID != "s2-1" {
+		t.Fatalf("service must be watched again after release: %+v %v", inst, err)
+	}
+}
+
+func TestBusyServicesAreKept(t *testing.T) {
+	a, d := setup(t)
+	a.SetHealth("hot", healthEntry("hot-1"))
+	b := New(t.Context(), d, RoundRobin(), WithIdleTimeout(100*time.Millisecond))
+	defer b.Close()
+	end := time.Now().Add(400 * time.Millisecond)
+	for time.Now().Before(end) {
+		if _, err := b.Next(t.Context(), "hot"); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if b.watched() != 1 {
+		t.Fatal("a service in use must keep its watch")
+	}
+}
+
+func BenchmarkNext20Instances(b *testing.B) {
+	a := fakeconsul.New("1.22.7")
+	defer a.Close()
+	entries := make([]*api.ServiceEntry, 20)
+	for i := range entries {
+		e := healthEntry(fmt.Sprintf("p%02d", i))
+		e.Service.Meta = map[string]string{"version": "2", "zone": "a"}
+		e.Service.Tags = []string{"v2", "blue"}
+		entries[i] = e
+	}
+	a.SetHealth("payments", entries...)
+	raw, _ := api.NewClient(&api.Config{Address: a.URL()})
+	lb := New(context.Background(), discovery.New(raw, discovery.Config{}), RoundRobin())
+	defer lb.Close()
+	ctx := context.Background()
+	if _, err := lb.Next(ctx, "payments"); err != nil {
+		b.Fatal(err)
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		_, _ = lb.Next(ctx, "payments")
+	}
+}
+
+func TestNextReturnsIndependentCopies(t *testing.T) {
+	a, d := setup(t)
+	e := healthEntry("p1")
+	e.Service.Meta = map[string]string{"version": "2"}
+	a.SetHealth("payments", e)
+	b := New(t.Context(), d, RoundRobin())
+	defer b.Close()
+	first, err := b.Next(t.Context(), "payments")
+	if err != nil {
+		t.Fatal(err)
+	}
+	first.Meta["version"] = "mutated"
+	first.Tags[0] = "mutated"
+	second, _ := b.Next(t.Context(), "payments")
+	if second.Meta["version"] != "2" || second.Tags[0] != "v2" {
+		t.Fatalf("Next must return copies, got %+v", second)
 	}
 }
