@@ -17,20 +17,19 @@ Functional benchmark: Spring Cloud Consul (discovery + distributed config).
 Programming model: plain Go (structs, functional options, `context.Context`,
 channels, errors). No container, no annotations, no global state.
 
-```text
-Microservice
-   │  *http.Server, context.Context
-   ▼
-consulx.Client ─────────────── Raw() ──► *api.Client (escape hatch)
-   │
-   ├── runtime supervisor (one per Client)
-   │     ├── registrar     register, detect loss, re-register, deregister
-   │     ├── heartbeat     TTL checks only
-   │     └── watchers      discovery / config / load balancer caches
-   ├── internal/compat     agent version + edition → feature gate
-   ├── internal/backoff    exponential, equal jitter, capped
-   ├── internal/blocking   blocking-query index rules, token-bucket pacing
-   └── official client ──► Consul agent HTTP API (/v1)
+```mermaid
+flowchart TD
+    app["Microservice<br/>*http.Server and context.Context"] --> client["consulx.Client"]
+    client --> runtime["Runtime supervisor<br/>one per Client"]
+    runtime --> registrar["registrar<br/>register, detect loss, re-register, deregister"]
+    runtime --> heartbeat["heartbeat<br/>TTL checks only"]
+    runtime --> watchers["watchers<br/>discovery, config and balancer caches"]
+    client --> compat["internal/compat<br/>agent version and edition, feature gate"]
+    client --> backoff["internal/backoff<br/>exponential, equal jitter, capped"]
+    client --> blocking["internal/blocking<br/>index rules, token-bucket pacing"]
+    client -- "Raw()" --> official["official consul/api client<br/>escape hatch"]
+    registrar & heartbeat & watchers --> official
+    official --> agent[("Consul agent<br/>HTTP API /v1")]
 ```
 
 ## 2. Module and package layout
@@ -38,27 +37,35 @@ consulx.Client ─────────────── Raw() ──► *ap
 The core module must not pull in web frameworks, Prometheus, OpenTelemetry or
 Testcontainers. Anything with a heavy dependency lives in its own Go module.
 
-```text
-github.com/jhonsferg/consulx            core module
-├── consulx (root)      Client, Config, Option, lifecycle, registration,
-│                        health checks, errors, AddressResolver, Metrics
-├── health/             Status (UP/DEGRADED/DOWN), Provider, HTTP handlers
-├── discovery/          query builder, ServiceInstance, Watch, events
-├── balancer/           Balancer interface, RoundRobin, Random, Weighted
-├── kvconfig/           layered KV config, binding, generic Watcher[T]
-├── internal/compat     version detection, feature gate
-├── internal/backoff    retry policy implementation
-├── internal/bind       reflection binder (tree → struct), fuzzed
-├── internal/blocking   blocking-query rules shared by every watch
-├── internal/netaddr    host:port parsing, interface/route IP discovery
-├── internal/serviceid  ID generation and sanitising
-└── internal/fakeconsul in-process fake agent (httptest) for unit tests
-
-github.com/jhonsferg/consulx/integration      separate module: testcontainers
-github.com/jhonsferg/consulx/contrib/prometheus separate module: Prometheus metrics
-github.com/jhonsferg/consulx/contrib/otel       separate module: OpenTelemetry metrics, tracing
-github.com/jhonsferg/consulx/contrib/fiber      separate module: Fiber health endpoints
-github.com/jhonsferg/consulx/examples           separate module: runnable examples
+```mermaid
+flowchart LR
+    subgraph core["github.com/jhonsferg/consulx - core module"]
+        root["consulx root package<br/>Client, Config, Option, lifecycle,<br/>registration, errors, AddressResolver, Metrics"]
+        health["health<br/>UP, DEGRADED, DOWN, registry, HTTP handlers"]
+        discovery["discovery<br/>query builder, ServiceInstance, Watch"]
+        balancer["balancer<br/>RoundRobin, Random, Weighted"]
+        kvconfig["kvconfig<br/>layered KV configuration, Watcher"]
+        subgraph internal["internal packages"]
+            compat["compat<br/>version detection, feature gate"]
+            ibackoff["backoff<br/>retry policy"]
+            bind["bind<br/>tree to struct binder, fuzzed"]
+            iblocking["blocking<br/>blocking-query rules"]
+            netaddr["netaddr<br/>address parsing, IP discovery"]
+            serviceid["serviceid<br/>ID generation"]
+            fake["fakeconsul<br/>fake agent for unit tests"]
+        end
+        root --> health & discovery & balancer & kvconfig
+        balancer --> discovery
+        root --> internal
+    end
+    subgraph separate["Separate Go modules"]
+        prom["contrib/prometheus<br/>Prometheus metrics"]
+        otel["contrib/otel<br/>OpenTelemetry metrics and tracing"]
+        fiber["contrib/fiber<br/>Fiber health endpoints"]
+        integ["integration<br/>Testcontainers suite"]
+        ex["examples<br/>runnable programs"]
+    end
+    prom & otel & fiber & integ & ex --> root
 ```
 
 A planned `kv/` package was dropped: the official KV client already accepts a
@@ -198,12 +205,19 @@ consumers are local).
 
 ## 6. Runtime and lifecycle
 
-```text
-Idle ─Start─► Starting ──registered──► Running ◄──┐
-                 │                        │       │ re-registered
-                 │ FailFast=false         ▼       │
-                 └───────────────────► Degraded ──┘  (backoff retries)
-Running/Degraded ─ctx done or Stop─► Stopping ─► Stopped (Done closed)
+```mermaid
+stateDiagram-v2
+    [*] --> Idle: New
+    Idle --> Starting: Start or Run
+    Starting --> Running: registered
+    Starting --> Degraded: Consul unavailable, FailFast off
+    Starting --> Stopped: start failed
+    Running --> Degraded: Consul unavailable or service lost
+    Degraded --> Running: reconnected or re-registered
+    Running --> Stopping: ctx done or Stop
+    Degraded --> Stopping: ctx done or Stop
+    Stopping --> Stopped: deregistered, Done closed
+    Stopped --> [*]
 ```
 
 * One supervisor goroutine per `Client`, children started with
