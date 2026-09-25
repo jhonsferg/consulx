@@ -38,7 +38,11 @@ SARIF reports appear under **Security → Code scanning**.
 ## Versioning
 
 The next version of each module is derived from the Conventional Commit
-subjects since its last tag:
+subjects since its last tag, **counting only commits that change Go files**
+(`*.go`, `go.mod`, `go.sum`) of that module. Documentation, README, CI
+workflows, linter settings and other non-Go files never trigger a release,
+whatever their commit type; they are published with the next release that
+does change Go code.
 
 | Commits since the last tag                         | Bump                      | Example                          |
 |----------------------------------------------------|---------------------------|----------------------------------|
@@ -51,10 +55,10 @@ Modules and tags:
 
 | Module                         | Tag format                  | Paths considered                                                                       |
 |--------------------------------|-----------------------------|----------------------------------------------------------------------------------------|
-| `github.com/jhonsferg/consulx` | `vX.Y.Z`                    | everything except `contrib/`, `examples/`, `integration/`, `docs/`, `.github/`, `*.md` |
-| `.../contrib/prometheus`       | `contrib/prometheus/vX.Y.Z` | `contrib/prometheus/`                                                                  |
-| `.../contrib/otel`             | `contrib/otel/vX.Y.Z`       | `contrib/otel/`                                                                        |
-| `.../contrib/fiber`            | `contrib/fiber/vX.Y.Z`      | `contrib/fiber/`                                                                       |
+| `github.com/jhonsferg/consulx` | `vX.Y.Z`                    | `*.go`, `go.mod`, `go.sum` outside `contrib/`, `examples/`, `integration/`             |
+| `.../contrib/prometheus`       | `contrib/prometheus/vX.Y.Z` | `*.go`, `go.mod`, `go.sum` under `contrib/prometheus/`                                 |
+| `.../contrib/otel`             | `contrib/otel/vX.Y.Z`       | `*.go`, `go.mod`, `go.sum` under `contrib/otel/`                                       |
+| `.../contrib/fiber`            | `contrib/fiber/vX.Y.Z`      | `*.go`, `go.mod`, `go.sum` under `contrib/fiber/`                                      |
 
 `examples` and `integration` are never published.
 
