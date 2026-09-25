@@ -46,3 +46,33 @@ func TestDiscoveryAndBalancerThroughClient(t *testing.T) {
 		t.Fatalf("balancer must be closed with the client: %v", err)
 	}
 }
+
+func TestClientBalancerHasDefaultStaleGrace(t *testing.T) {
+	a := fakeAgent(t, "1.22.7")
+	a.SetHealth("payments", &api.ServiceEntry{
+		Node:    &api.Node{Node: "n1", Address: "10.0.0.1"},
+		Service: &api.AgentService{ID: "p1", Service: "payments", Port: 80},
+		Checks:  api.HealthChecks{{Status: api.HealthPassing}},
+	})
+	c := agentClient(t, a, WithAutoRegister(false))
+	if err := c.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	defer stop(t, c)
+	graceful := c.Balancer(balancer.RoundRobin())
+	strict := c.Balancer(balancer.RoundRobin(), balancer.WithStaleGrace(0))
+	for _, lb := range []*balancer.Balancer{graceful, strict} {
+		if _, err := lb.Next(t.Context(), "payments"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	a.SetHealth("payments") // every instance reported critical
+	eventually(t, "strict balancer sees the empty list", func() bool {
+		_, err := strict.Next(t.Context(), "payments")
+		return errors.Is(err, ErrServiceNotFound)
+	})
+	if inst, err := graceful.Next(t.Context(), "payments"); err != nil || inst.ID != "p1" {
+		t.Fatalf("default grace must keep serving the last instances: %+v %v", inst, err)
+	}
+}
