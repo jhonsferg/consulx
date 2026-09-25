@@ -183,9 +183,3 @@ func Select(ifs []Interface, f Filter) (netip.Addr, error) {
 	}
 	return netip.Addr{}, ErrNoAddress
 }
-
-// SplitHostPort is ParseListenAddress without a context. Deprecated: use
-// ParseListenAddress.
-func SplitHostPort(addr string) (string, int, error) {
-	return ParseListenAddress(context.Background(), addr)
-}
