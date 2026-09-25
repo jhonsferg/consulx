@@ -417,5 +417,6 @@ Runnable programs in [examples/](examples): `basic`, `gin`, `echo`, `chi`,
 
 [docs/development.md](docs/development.md) explains how to run Consul
 locally, the unit, race, fuzz and integration test suites, and the version
-matrix. Architecture: [docs/architecture.md](docs/architecture.md);
+matrix; CI and automatic releases are described in
+[docs/release.md](docs/release.md). Architecture: [docs/architecture.md](docs/architecture.md);
 decisions: [docs/decisions/](docs/decisions/).
