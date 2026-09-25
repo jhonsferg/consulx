@@ -41,6 +41,7 @@ const (
 	EnvHealthInterval  = "CONSULX_HEALTH_INTERVAL"
 	EnvDeregisterAfter = "CONSULX_DEREGISTER_CRITICAL_AFTER"
 	EnvFailFast        = "CONSULX_FAIL_FAST"
+	EnvProfiles        = "CONSULX_PROFILES"
 )
 
 // ConfigFromEnv builds a Config layer from the process environment. Unset
@@ -137,6 +138,9 @@ func configFromLookup(lookup func(string) (string, bool)) (Config, error) {
 	c.Health.DeregisterCriticalServiceAfter = parseDuration(EnvDeregisterAfter)
 	if b, ok := parseBool(EnvFailFast); ok {
 		c.Lifecycle.FailFast = b
+	}
+	if v := get(EnvProfiles); v != "" {
+		c.KV.Profiles = splitList(v)
 	}
 	return c, errs.errOrNil()
 }
