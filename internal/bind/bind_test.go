@@ -34,7 +34,7 @@ type AppConfig struct {
 	Ignored  string            `consul:"-"`
 	Labels   map[string]string `consul:"labels"`
 	Optional *DB               `consul:"optional"`
-	internal string
+	hidden   string            // unexported: never bound
 }
 
 func TestBindKVTree(t *testing.T) {
@@ -54,6 +54,7 @@ func TestBindKVTree(t *testing.T) {
 		"-":        "never",
 		"labels":   map[string]any{"team": "payments"},
 		"unknown":  "ignored",
+		"hidden":   "must not be bound",
 	}
 	var cfg AppConfig
 	cfg.Ignored = "keep"
@@ -76,7 +77,7 @@ func TestBindKVTree(t *testing.T) {
 	if len(cfg.Replicas) != 1 || cfg.Replicas[0].Host != "r1" || cfg.Replicas[0].Port != 5432 {
 		t.Fatalf("replicas %+v", cfg.Replicas)
 	}
-	if cfg.Ratio != 0.75 || !cfg.Bind.Equal(net.ParseIP("10.0.0.1")) || cfg.Ignored != "keep" || cfg.Optional != nil {
+	if cfg.Ratio != 0.75 || !cfg.Bind.Equal(net.ParseIP("10.0.0.1")) || cfg.Ignored != "keep" || cfg.Optional != nil || cfg.hidden != "" {
 		t.Fatalf("misc %+v", cfg)
 	}
 	if m, ok := cfg.Extra.(map[string]any); !ok || m["k"] != "v" {
