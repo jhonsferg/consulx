@@ -137,16 +137,73 @@ jobs:
           echo "tags=${created[*]}" >> "$GITHUB_OUTPUT"
           echo "Created: ${created[*]}"
 
-      - name: GitHub release
-        if: steps.tags.outputs.root != ''
+      - name: GitHub releases with notes
+        if: steps.tags.outputs.tags != ''
         env:
           GH_TOKEN: ${{ github.token }}
+          TAGS: ${{ steps.tags.outputs.tags }}
         run: |
-          args=(--title "${{ steps.tags.outputs.root }}" --generate-notes --verify-tag)
-          if [ -n "${{ steps.tags.outputs.root_last }}" ]; then
-            args+=(--notes-start-tag "${{ steps.tags.outputs.root_last }}")
-          fi
-          gh release create "${{ steps.tags.outputs.root }}" "${args[@]}"
+          set -euo pipefail
+          repo_url="https://github.com/${GITHUB_REPOSITORY}"
+          base_module="github.com/${GITHUB_REPOSITORY,,}"
+
+          # section <title> <subject regex> <range> <pathspec...>
+          # Lists matching commits as "- scope: message (sha)". Squash merges
+          # keep the PR number in the subject, which GitHub links.
+          section() {
+            local title="$1" pattern="$2" range="$3"; shift 3
+            local lines
+            lines=$(git log --no-merges --format='%H%x09%s' "$range" -- "$@" | grep -E "^[0-9a-f]+"$'\t'"${pattern}" || true)
+            [ -z "$lines" ] && return 0
+            printf '### %s\n\n' "$title"
+            while IFS=$'\t' read -r sha subject; do
+              scope=$(sed -nE 's/^[a-z]+\(([^)]*)\)!?:.*/\1/p' <<< "$subject")
+              msg=${subject#*: }
+              # shellcheck disable=SC2016 # backticks are Markdown
+              printf -- '- %s%s ([`%s`](%s/commit/%s))\n' "${scope:+**$scope:** }" "$msg" "${sha:0:7}" "$repo_url" "$sha"
+            done <<< "$lines"
+            printf '\n'
+          }
+
+          # notes <tag> <previous tag or empty> <module path> <pathspec...>
+          notes() {
+            local tag="$1" prev="$2" module="$3"; shift 3
+            local version="v${tag##*v}" range="${prev:+$prev..}$tag"
+            # shellcheck disable=SC2016 # backticks are Markdown
+            printf '## Install\n\n```sh\ngo get %s@%s\n```\n\n' "$module" "$version"
+            printf 'API reference: [pkg.go.dev](https://pkg.go.dev/%s@%s)\n\n' "$module" "$version"
+            section "⚠️ Breaking changes" '[a-z]+(\([^)]*\))?!:' "$range" "$@"
+            section "✨ Features" 'feat(\([^)]*\))?:' "$range" "$@"
+            section "🐛 Bug fixes" 'fix(\([^)]*\))?:' "$range" "$@"
+            section "♻️ Refactoring and performance" 'refactor(\([^)]*\))?:' "$range" "$@"
+            section "📚 Documentation" 'docs(\([^)]*\))?:' "$range" "$@"
+            local chores
+            chores=$(git log --no-merges --format='%s' "$range" -- "$@" | grep -cE '^(chore|style)(\([^)]*\))?:' || true)
+            [ "$chores" -gt 0 ] && printf '### 🔧 Maintenance\n\n%s maintenance commits (tests, dependencies, CI, formatting).\n\n' "$chores"
+            if [ -n "$prev" ]; then
+              printf '**Full changelog**: %s/compare/%s...%s\n' "$repo_url" "$prev" "$tag"
+            else
+              printf '**Full changelog**: %s/commits/%s\n' "$repo_url" "$tag"
+            fi
+          }
+
+          for tag in $TAGS; do
+            case "$tag" in
+              v*)
+                prev=$(git tag --list 'v[0-9]*' --sort=-v:refname | grep -vx "$tag" | head -1 || true)
+                notes "$tag" "$prev" "$base_module" . \
+                  ':(exclude)contrib' ':(exclude)examples' ':(exclude)integration' \
+                  ':(exclude).github' > notes.md
+                gh release create "$tag" --title "$tag" --notes-file notes.md --verify-tag --latest
+                ;;
+              *)
+                path="${tag%/v*}"
+                prev=$(git tag --list "$path/v[0-9]*" --sort=-v:refname | grep -vx "$tag" | head -1 || true)
+                notes "$tag" "$prev" "$base_module/$path" "$path" > notes.md
+                gh release create "$tag" --title "$path ${tag##*/}" --notes-file notes.md --verify-tag --latest=false
+                ;;
+            esac
+          done
 
       - name: Notify the Go module proxy and pkg.go.dev
         if: steps.tags.outputs.tags != ''
