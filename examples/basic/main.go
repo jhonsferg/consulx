@@ -1,7 +1,8 @@
 // Command basic registers a net/http service in Consul with injected health
-// endpoints, and deregisters it on SIGINT/SIGTERM.
+// endpoints, and deregisters it on SIGINT/SIGTERM. It tags the service "v1",
+// which is the tag examples/discovery looks up.
 //
-//	docker run -d -p 8500:8500 hashicorp/consul:1.22 agent -dev -client=0.0.0.0
+//	docker run -d -p 8500:8500 hashicorp/consul:1.22 agent -dev "-client=0.0.0.0"
 //	CONSULX_SERVICE_ADDRESS=host.docker.internal go run ./basic
 //
 // CONSULX_SERVICE_ADDRESS is only needed when Consul runs in Docker Desktop
@@ -34,6 +35,7 @@ func main() {
 		consulx.WithConsulAddress("http://localhost:8500"),
 		consulx.WithServer(server),
 		consulx.WithServiceName("orders-api"),
+		consulx.WithTags("v1"), // looked up by examples/discovery
 		consulx.WithAutoHealth(),
 	)
 	if err != nil {
