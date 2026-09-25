@@ -31,15 +31,15 @@ func (s Secret) GoString() string { return fmt.Sprintf("consulx.Secret(%q)", s.S
 func (s Secret) Format(f fmt.State, verb rune) {
 	switch verb {
 	case 'q':
-		fmt.Fprintf(f, "%q", s.String())
+		_, _ = fmt.Fprintf(f, "%q", s.String())
 	case 'v':
 		if f.Flag('#') {
-			fmt.Fprint(f, s.GoString())
+			_, _ = fmt.Fprint(f, s.GoString())
 			return
 		}
-		fmt.Fprint(f, s.String())
+		_, _ = fmt.Fprint(f, s.String())
 	default:
-		fmt.Fprint(f, s.String())
+		_, _ = fmt.Fprint(f, s.String())
 	}
 }
 
