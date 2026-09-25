@@ -58,7 +58,7 @@ func main() {
 		slog.Error("configuration unavailable or invalid", "error", err)
 		os.Exit(1)
 	}
-	defer w.Close()
+	defer func() { _ = w.Close() }()
 	fmt.Printf("initial configuration: %+v\n", w.Current())
 
 	for {
