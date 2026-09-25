@@ -18,7 +18,7 @@ working copy, so changes are tested together.
 
 ```sh
 # Development agent, in memory, UI on http://localhost:8500
-docker run -d --name consul -p 8500:8500 hashicorp/consul:1.22 agent -dev -client=0.0.0.0
+docker run -d --name consul -p 8500:8500 hashicorp/consul:1.22 agent -dev "-client=0.0.0.0"
 
 # Seed configuration
 docker exec consul consul kv put config/application/database/host shared-db
@@ -32,6 +32,10 @@ The container must reach your service for HTTP checks. Docker Desktop
 provides `host.docker.internal`; on Linux start the agent with
 `--add-host host.docker.internal:host-gateway`. Then run services with
 `CONSULX_SERVICE_ADDRESS=host.docker.internal`.
+
+The quotes around `"-client=0.0.0.0"` are required in PowerShell, which
+otherwise splits the argument at the dots, and are harmless in every other
+shell.
 
 ## Unit tests
 
