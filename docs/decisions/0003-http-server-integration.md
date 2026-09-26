@@ -1,7 +1,7 @@
-# ADR 0003: Integration through *http.Server
+# ADR 0003: Integration through \*http.Server
 
-* Status: accepted
-* Date: 2026-09-25
+- Status: accepted
+- Date: 2026-09-25
 
 ## Context
 
@@ -12,29 +12,29 @@ scheme (http/https).
 
 ## Decision
 
-* The integration point is the application's `*http.Server`
+- The integration point is the application's `*http.Server`
   (`WithServer`). ConsulX never creates, starts, stops or replaces it.
-* The port comes from, in order: `Service.Port`, the default entry of
+- The port comes from, in order: `Service.Port`, the default entry of
   `Service.Ports`, the listener passed with `WithListener`, `Server.Addr`
   (empty means `:http`, as in net/http). Port 0 requires `WithListener` or
   an explicit port, because the real port is only known after listening.
-* The scheme is https when `Server.TLSConfig` is set **when `New` runs**,
+- The scheme is https when `Server.TLSConfig` is set **when `New` runs**,
   unless configured. It must be decided before serving: `Server.Serve`
   initialises `TLSConfig` itself for HTTP/2, so reading it later reports
   https for plain HTTP servers and races with `Serve` (found by the
   integration suite).
-* The address is never taken from a wildcard `Server.Addr` (`:8080`,
+- The address is never taken from a wildcard `Server.Addr` (`:8080`,
   `0.0.0.0`, `::`). It comes from an explicit value or from a resolver
   chain: `Service.AddressEnv`, a concrete server host, the local IP routing
   to the Consul agent, then the first private interface address. Loopback is
   refused unless `AllowLoopback` is set. The chosen source is logged.
-* No framework is imported by the core. Frameworks whose engine is an
+- No framework is imported by the core. Frameworks whose engine is an
   `http.Handler` need no adapter.
 
 ## Consequences
 
-* Any router works unchanged, including ones added after ConsulX.
-* Route listing is impossible through `http.Handler`; ConsulX does not try
+- Any router works unchanged, including ones added after ConsulX.
+- Route listing is impossible through `http.Handler`; ConsulX does not try
   to discover routes by reflection.
-* Automatic address detection can still be wrong in unusual topologies;
+- Automatic address detection can still be wrong in unusual topologies;
   `WithServiceAddress` or a custom `AddressResolver` fixes it explicitly.
