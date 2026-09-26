@@ -338,3 +338,25 @@ func BenchmarkWatchPick(b *testing.B) {
 		_, _ = w.Pick(pick)
 	}
 }
+
+// BenchmarkQueryAll runs a full health query: HTTP round trip, decoding,
+// conversion and ordering, as an application calling All on a request does.
+func BenchmarkQueryAll(b *testing.B) {
+	a := fakeconsul.New("1.22.7")
+	defer a.Close()
+	entries := make([]*api.ServiceEntry, 20)
+	for i := range entries {
+		entries[i] = entry(fmt.Sprintf("p%02d", i), "10.0.0.1", 8080, api.HealthPassing, "v1", "blue")
+	}
+	a.SetHealth("payments", entries...)
+	raw, _ := api.NewClient(&api.Config{Address: a.URL()})
+	q := New(raw, Config{}).Service("payments")
+	ctx := context.Background()
+	if _, err := q.All(ctx); err != nil {
+		b.Fatal(err)
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		_, _ = q.All(ctx)
+	}
+}
