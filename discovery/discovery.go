@@ -127,11 +127,14 @@ const (
 // returns a modified copy, so a base query can be shared and specialised
 // safely from several goroutines.
 type Query struct {
-	c           *Client
-	name        string
-	tags        []string
-	meta        map[string]string
-	filter      string
+	c      *Client
+	name   string
+	tags   []string
+	meta   map[string]string
+	filter string
+	// expr is the combined filter expression, built by Meta and Filter so
+	// requests, which run for every response of every watch, reuse it.
+	expr        string
 	passing     bool
 	dc          string
 	ns          string
@@ -154,6 +157,7 @@ func (q Query) Meta(key, value string) Query {
 		q.meta = map[string]string{}
 	}
 	q.meta[key] = value
+	q.expr = q.filterExpr()
 	return q
 }
 
@@ -165,6 +169,7 @@ func (q Query) Filter(expr string) Query {
 	} else {
 		q.filter = "(" + q.filter + ") and (" + expr + ")"
 	}
+	q.expr = q.filterExpr()
 	return q
 }
 
@@ -223,13 +228,12 @@ func (q Query) Cached() Query {
 
 // options builds the official query options.
 func (q Query) options(ctx context.Context) *api.QueryOptions {
-	o := &api.QueryOptions{
-		Datacenter: q.dc,
-		Namespace:  q.ns,
-		Partition:  q.partition,
-		Near:       q.near,
-		Filter:     q.filterExpr(),
-	}
+	var o api.QueryOptions
+	o.Datacenter = q.dc
+	o.Namespace = q.ns
+	o.Partition = q.partition
+	o.Near = q.near
+	o.Filter = q.expr
 	switch q.consistency {
 	case Stale:
 		o.AllowStale = true
@@ -239,8 +243,12 @@ func (q Query) options(ctx context.Context) *api.QueryOptions {
 	return o.WithContext(ctx)
 }
 
-// filterExpr combines metadata requirements and the user filter.
+// filterExpr combines metadata requirements and the user filter. It is empty
+// in the common case, where it must not allocate anything.
 func (q Query) filterExpr() string {
+	if len(q.meta) == 0 && q.filter == "" {
+		return ""
+	}
 	parts := make([]string, 0, len(q.meta)+1)
 	for _, k := range slices.Sorted(maps.Keys(q.meta)) {
 		parts = append(parts, fmt.Sprintf("Service.Meta[%s] == %s", strconv.Quote(k), strconv.Quote(q.meta[k])))
