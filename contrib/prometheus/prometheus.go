@@ -20,6 +20,10 @@ import (
 )
 
 // Metrics implements consulx.Metrics. It is safe for concurrent use.
+//
+// The series of every metric and label value is resolved once and cached,
+// so reporting a measurement costs no allocation: ConsulX reports from its
+// registration, heartbeat and discovery paths.
 type Metrics struct {
 	reg prom.Registerer
 
@@ -27,6 +31,10 @@ type Metrics struct {
 	counters   map[string]*prom.CounterVec
 	gauges     map[string]*prom.GaugeVec
 	histograms map[string]*prom.HistogramVec
+
+	counterSeries   map[seriesKey]prom.Counter
+	gaugeSeries     map[seriesKey]prom.Gauge
+	histogramSeries map[seriesKey]prom.Observer
 }
 
 var _ consulx.Metrics = (*Metrics)(nil)
@@ -34,11 +42,60 @@ var _ consulx.Metrics = (*Metrics)(nil)
 // New returns a Metrics registering its collectors on reg.
 func New(reg prom.Registerer) *Metrics {
 	return &Metrics{
-		reg:        reg,
-		counters:   map[string]*prom.CounterVec{},
-		gauges:     map[string]*prom.GaugeVec{},
-		histograms: map[string]*prom.HistogramVec{},
+		reg:             reg,
+		counters:        map[string]*prom.CounterVec{},
+		gauges:          map[string]*prom.GaugeVec{},
+		histograms:      map[string]*prom.HistogramVec{},
+		counterSeries:   map[seriesKey]prom.Counter{},
+		gaugeSeries:     map[seriesKey]prom.Gauge{},
+		histogramSeries: map[seriesKey]prom.Observer{},
 	}
+}
+
+// seriesKey identifies a series with at most one label, which covers every
+// metric ConsulX reports. Series with more labels are resolved per call.
+type seriesKey struct {
+	name  string
+	label consulx.Label
+	n     int // number of labels: 0 or 1
+}
+
+// vec is what the three Prometheus vector types have in common.
+type vec[S any] interface {
+	GetMetricWithLabelValues(lvs ...string) (S, error)
+}
+
+// series returns the series of name and labels, creating the vector with
+// create on first use. m.mu guards both maps.
+func series[V vec[S], S any](m *Metrics, vecs map[string]V, cache map[seriesKey]S,
+	name string, labels []consulx.Label, create func(names []string) V,
+) (S, bool) {
+	key := seriesKey{name: name, n: len(labels)}
+	if len(labels) == 1 {
+		key.label = labels[0]
+	}
+	cacheable := len(labels) <= 1
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if cacheable {
+		if s, ok := cache[key]; ok {
+			return s, true
+		}
+	}
+	names, values := split(labels)
+	v, ok := vecs[name]
+	if !ok {
+		v = create(names)
+		vecs[name] = v
+	}
+	s, err := v.GetMetricWithLabelValues(values...)
+	if err != nil {
+		return s, false
+	}
+	if cacheable {
+		cache[key] = s
+	}
+	return s, true
 }
 
 var help = map[string]string{
@@ -92,30 +149,20 @@ func register[C prom.Collector](reg prom.Registerer, c C) C {
 
 // IncCounter implements consulx.Metrics.
 func (m *Metrics) IncCounter(name string, labels ...consulx.Label) {
-	names, values := split(labels)
-	m.mu.Lock()
-	vec, ok := m.counters[name]
-	if !ok {
-		vec = register(m.reg, prom.NewCounterVec(prom.CounterOpts{Name: name, Help: helpFor(name)}, names))
-		m.counters[name] = vec
-	}
-	m.mu.Unlock()
-	if c, err := vec.GetMetricWithLabelValues(values...); err == nil {
+	c, ok := series(m, m.counters, m.counterSeries, name, labels, func(names []string) *prom.CounterVec {
+		return register(m.reg, prom.NewCounterVec(prom.CounterOpts{Name: name, Help: helpFor(name)}, names))
+	})
+	if ok {
 		c.Inc()
 	}
 }
 
 // SetGauge implements consulx.Metrics.
 func (m *Metrics) SetGauge(name string, value float64, labels ...consulx.Label) {
-	names, values := split(labels)
-	m.mu.Lock()
-	vec, ok := m.gauges[name]
-	if !ok {
-		vec = register(m.reg, prom.NewGaugeVec(prom.GaugeOpts{Name: name, Help: helpFor(name)}, names))
-		m.gauges[name] = vec
-	}
-	m.mu.Unlock()
-	if g, err := vec.GetMetricWithLabelValues(values...); err == nil {
+	g, ok := series(m, m.gauges, m.gaugeSeries, name, labels, func(names []string) *prom.GaugeVec {
+		return register(m.reg, prom.NewGaugeVec(prom.GaugeOpts{Name: name, Help: helpFor(name)}, names))
+	})
+	if ok {
 		g.Set(value)
 	}
 }
@@ -123,15 +170,10 @@ func (m *Metrics) SetGauge(name string, value float64, labels ...consulx.Label) 
 // ObserveDuration implements consulx.Metrics. Durations are recorded in
 // seconds with the default Prometheus buckets.
 func (m *Metrics) ObserveDuration(name string, d time.Duration, labels ...consulx.Label) {
-	names, values := split(labels)
-	m.mu.Lock()
-	vec, ok := m.histograms[name]
-	if !ok {
-		vec = register(m.reg, prom.NewHistogramVec(prom.HistogramOpts{Name: name, Help: helpFor(name), Buckets: prom.DefBuckets}, names))
-		m.histograms[name] = vec
-	}
-	m.mu.Unlock()
-	if h, err := vec.GetMetricWithLabelValues(values...); err == nil {
+	h, ok := series(m, m.histograms, m.histogramSeries, name, labels, func(names []string) *prom.HistogramVec {
+		return register(m.reg, prom.NewHistogramVec(prom.HistogramOpts{Name: name, Help: helpFor(name), Buckets: prom.DefBuckets}, names))
+	})
+	if ok {
 		h.Observe(d.Seconds())
 	}
 }
