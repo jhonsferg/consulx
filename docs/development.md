@@ -3,7 +3,7 @@
 ## Repository layout
 
 | Module                         | Path                  | Purpose                                           |
-|--------------------------------|-----------------------|---------------------------------------------------|
+| ------------------------------ | --------------------- | ------------------------------------------------- |
 | `github.com/jhonsferg/consulx` | `/`                   | the library                                       |
 | `.../integration`              | `integration/`        | tests against real Consul agents (Testcontainers) |
 | `.../examples`                 | `examples/`           | runnable examples                                 |
@@ -62,6 +62,16 @@ Windows without MinGW), run it in a container:
 docker run --rm -v "$PWD:/src" -w /src golang:1.27 go test -race ./...
 ```
 
+## Formatting and linting
+
+`tools/lint.sh` runs every formatter and linter in Docker with pinned
+versions: Prettier and markdownlint-cli2 for Markdown, `golangci-lint fmt`
+(gofmt, goimports) and `golangci-lint run` for every module with and without
+the `bench` tag, shellcheck for the scripts and actionlint for the
+workflows. `-w` formats in place, `-M` also renders the Mermaid diagrams.
+Prettier and markdownlint read `.prettierrc.yaml`, `.prettierignore` and
+`.markdownlint-cli2.yaml`.
+
 ## Fuzzing
 
 ```sh
@@ -75,12 +85,25 @@ go test -run '^$' -fuzz FuzzParse -fuzztime 30s ./internal/compat
 ## Benchmarks
 
 ```sh
-go test -run '^$' -bench . -benchmem ./... 
+go test -run '^$' -bench . -benchmem ./...
 ```
 
-Covered: configuration binding (`internal/bind`), instance conversion
-(`discovery`), balancer `Next` (`balancer`), the health handler wrapper
-(root package).
+Covered: configuration binding (`internal/bind`), instance conversion and
+full health queries (`discovery`), balancer `Next` alone, under the stale
+grace and with 32 concurrent callers (`balancer`), readiness probes
+(`health`) and the health handler wrapper (root package). Recorded
+baselines and what they mean live in [performance.md](performance.md).
+
+Times move ±10% with machine load, so compare only runs taken back to
+back on the same machine; allocation counts are exact. On Windows,
+`-cpuprofile` has been observed to freeze the test binary (the profile
+thread suspends threads while the runtime preempts them); profile on
+Linux instead when a run does not finish.
+
+The complete suite, covering every feature and the footprint of a running
+client, sits behind the `bench` build tag so CI never compiles or runs it.
+Run it with `tools/bench.sh` (`-L` runs it in a Linux container); see
+[benchmarks.md](benchmarks.md).
 
 ## Integration tests
 
