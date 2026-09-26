@@ -5,10 +5,10 @@
 ConsulX is in the `v0.x` series. Security fixes are released for the latest
 minor version only.
 
-| Version | Supported |
-|---------|-----------|
-| latest `v0.x` release | yes |
-| older releases | no, please upgrade |
+| Version               | Supported          |
+| --------------------- | ------------------ |
+| latest `v0.x` release | yes                |
+| older releases        | no, please upgrade |
 
 Contrib modules (`contrib/prometheus`, `contrib/otel`, `contrib/fiber`) follow
 the same policy for their own latest version.
