@@ -24,7 +24,7 @@ func BenchmarkGenerate(b *testing.B) {
 	b.Run("HostnamePort", func(b *testing.B) {
 		b.ReportAllocs()
 		for b.Loop() {
-			_ = HostnamePort("orders-api", "orders-api-7d9f8b6c4-x2k8p", 8080)
+			_ = HostnamePort("orders-api", "orders-api-host-1", 8080)
 		}
 	})
 	b.Run("Random", func(b *testing.B) {
