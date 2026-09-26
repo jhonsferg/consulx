@@ -221,7 +221,7 @@ func TestStaleGraceBridgesEmptyLists(t *testing.T) {
 	a.SetHealth("payments")
 	deadline := time.Now().Add(5 * time.Second)
 	for {
-		e, _ := b.entry("payments")
+		e, _ := b.entry("payments", b.now())
 		if len(e.watch.Instances()) == 0 {
 			break
 		}
@@ -351,4 +351,58 @@ func TestNextReturnsIndependentCopies(t *testing.T) {
 	if second.Meta["version"] != "2" || second.Tags[0] != "v2" {
 		t.Fatalf("Next must return copies, got %+v", second)
 	}
+}
+
+// BenchmarkNextStaleGrace uses the same instances as BenchmarkNext with the
+// stale grace consulx.Client.Balancer applies by default, so the difference
+// between the two is exactly what the grace bookkeeping costs per call.
+func BenchmarkNextStaleGrace(b *testing.B) {
+	lb := benchBalancer(b, true)
+	defer lb.Close()
+	ctx := context.Background()
+	b.ReportAllocs()
+	for b.Loop() {
+		_, _ = lb.Next(ctx, "payments")
+	}
+}
+
+// BenchmarkNextParallel measures Next under concurrent load, the way an
+// HTTP handler using the balancer calls it. It reports how much the shared
+// bookkeeping of the watch and the entry costs when many goroutines pick
+// instances of the same service at once.
+func BenchmarkNextParallel(b *testing.B) {
+	b.Run("grace", func(b *testing.B) { parallelNext(b, true) })
+	b.Run("nograce", func(b *testing.B) { parallelNext(b, false) })
+}
+
+func parallelNext(b *testing.B, grace bool) {
+	lb := benchBalancer(b, grace)
+	defer lb.Close()
+	b.ReportAllocs()
+	b.RunParallel(func(pb *testing.PB) {
+		ctx := context.Background()
+		for pb.Next() {
+			_, _ = lb.Next(ctx, "payments")
+		}
+	})
+}
+
+// benchBalancer starts a fake agent with three instances and returns a
+// balancer whose watch is already ready.
+func benchBalancer(b *testing.B, grace bool) *Balancer {
+	b.Helper()
+	a := fakeconsul.New("1.22.7")
+	b.Cleanup(a.Close)
+	a.SetHealth("payments", healthEntry("p1"), healthEntry("p2"), healthEntry("p3"))
+	raw, _ := api.NewClient(&api.Config{Address: a.URL()})
+	var opts []Option
+	if grace {
+		opts = append(opts, WithStaleGrace(10*time.Second))
+	}
+	lb := New(context.Background(), discovery.New(raw, discovery.Config{}), RoundRobin(), opts...)
+	b.Cleanup(func() { _ = lb.Close() })
+	if _, err := lb.Next(context.Background(), "payments"); err != nil {
+		b.Fatal(err)
+	}
+	return lb
 }
