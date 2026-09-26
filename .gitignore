@@ -36,5 +36,8 @@ tmp/
 *.key
 *.token
 
+# Benchmark results and profiles (tools/bench.sh)
+.bench/
+
 # Fuzz corpora generated locally
 testdata/fuzz/**/cache/

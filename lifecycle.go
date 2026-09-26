@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 )
 
 // State is the lifecycle state of a Client.
@@ -45,8 +46,9 @@ type lifecycle struct {
 	// opMu serialises Start and Stop, so Stop waits for an in-flight Start.
 	opMu sync.Mutex
 
-	stateMu sync.RWMutex
-	state   State
+	// state is read on every registration response and by applications;
+	// an atomic value keeps concurrent readers from contending on a lock.
+	state atomic.Int32
 
 	ctx    context.Context    // runtime context, set by Start
 	cancel context.CancelFunc // cancels ctx
@@ -64,16 +66,11 @@ func newLifecycle() lifecycle {
 
 // State returns the current lifecycle state.
 func (c *Client) State() State {
-	c.lc.stateMu.RLock()
-	defer c.lc.stateMu.RUnlock()
-	return c.lc.state
+	return State(c.lc.state.Load())
 }
 
 func (c *Client) setState(s State) {
-	c.lc.stateMu.Lock()
-	prev := c.lc.state
-	c.lc.state = s
-	c.lc.stateMu.Unlock()
+	prev := State(c.lc.state.Swap(int32(s)))
 	if prev != s {
 		c.metrics.SetGauge(MetricRuntimeState, float64(s))
 		c.log.Debug("runtime state changed", slog.String("from", prev.String()), slog.String("to", s.String()))

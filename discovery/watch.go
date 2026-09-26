@@ -3,8 +3,9 @@ package discovery
 import (
 	"context"
 	"log/slog"
-	"reflect"
+	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jhonsferg/consulx/internal/blocking"
@@ -31,10 +32,89 @@ type Watch struct {
 	cancel context.CancelFunc
 	done   chan struct{}
 
-	mu      sync.RWMutex
-	current []ServiceInstance
+	// current is the latest snapshot. It is published atomically instead of
+	// under a read-write lock so Pick never contends on a shared lock line
+	// with the other callers of the same watch.
+	current atomic.Pointer[snapshot]
 	ready   chan struct{}
 	once    sync.Once
+}
+
+// snapshot is one immutable state: the instances and their endpoints,
+// aligned by index. A new state is always a new snapshot.
+type snapshot struct {
+	list      []ServiceInstance
+	endpoints []Endpoint
+}
+
+// newSnapshot formats the endpoints of list once, so handing one out later
+// costs nothing.
+func newSnapshot(list []ServiceInstance) *snapshot {
+	eps := make([]Endpoint, len(list))
+	for i := range list {
+		eps[i] = list[i].Endpoint()
+	}
+	return &snapshot{list: list, endpoints: eps}
+}
+
+// Snapshot is one immutable state of a Watch. Obtaining it and reading it
+// cost no allocation; only the copies it returns do. The zero value is an
+// empty state.
+type Snapshot struct{ s *snapshot }
+
+// Len returns the number of instances.
+func (s Snapshot) Len() int {
+	if s.s == nil {
+		return 0
+	}
+	return len(s.s.list)
+}
+
+// Same reports whether s and o are the same state.
+func (s Snapshot) Same(o Snapshot) bool { return s.s == o.s }
+
+func (s Snapshot) list() []ServiceInstance {
+	if s.s == nil {
+		return nil
+	}
+	return s.s.list
+}
+
+// Instances returns an independent copy of every instance.
+func (s Snapshot) Instances() []ServiceInstance { return cloneAll(s.list()) }
+
+// Pick calls pick with the instances and returns an independent copy of the
+// instance it selects; ok is false when pick selects none. The slice is
+// immutable: pick must not modify it, but may keep it. Only the selected
+// instance is copied, so the cost does not grow with the number of
+// instances.
+func (s Snapshot) Pick(pick func([]ServiceInstance) (ServiceInstance, bool)) (ServiceInstance, bool) {
+	inst, ok := pick(s.list())
+	if !ok {
+		return ServiceInstance{}, false
+	}
+	return inst.clone(), true
+}
+
+// PickEndpoint calls pick with the instances and returns the endpoint of
+// the index it selects; ok is false when pick selects none or an index out
+// of range. The slice is immutable: pick must not modify it. Endpoints are
+// formatted when the state is received, so this costs no allocation.
+func (s Snapshot) PickEndpoint(pick func([]ServiceInstance) (int, bool)) (Endpoint, bool) {
+	i, ok := pick(s.list())
+	if !ok || i < 0 || i >= s.Len() {
+		return Endpoint{}, false
+	}
+	return s.s.endpoints[i], true
+}
+
+// Endpoints returns the endpoint of every instance, in the order of
+// Instances. The endpoints are values, so the result is independent.
+func (s Snapshot) Endpoints() []Endpoint {
+	if s.s == nil {
+		return nil
+	}
+	return slices.Clone(s.s.endpoints)
 }
 
 // Watch starts watching the query. The first Event carries the initial
@@ -74,11 +154,11 @@ func (w *Watch) Close() error {
 }
 
 // Instances returns the latest known instances, independently of Events.
-func (w *Watch) Instances() []ServiceInstance {
-	w.mu.RLock()
-	defer w.mu.RUnlock()
-	return cloneAll(w.current)
-}
+func (w *Watch) Instances() []ServiceInstance { return w.Current().Instances() }
+
+// Current returns the latest state, empty before the first response. It
+// costs no allocation.
+func (w *Watch) Current() Snapshot { return Snapshot{w.current.Load()} }
 
 // Pick calls pick with the current instances and returns an independent
 // copy of the instance it selects; ok is false when pick selects none. The
@@ -87,14 +167,7 @@ func (w *Watch) Instances() []ServiceInstance {
 // copies only the selected instance, so its cost does not grow with the
 // number of instances. The balancer uses it on every call.
 func (w *Watch) Pick(pick func([]ServiceInstance) (ServiceInstance, bool)) (ServiceInstance, bool) {
-	w.mu.RLock()
-	list := w.current
-	w.mu.RUnlock()
-	inst, ok := pick(list)
-	if !ok {
-		return ServiceInstance{}, false
-	}
-	return inst.clone(), true
+	return w.Current().Pick(pick)
 }
 
 // Ready is closed once the first successful response arrived.
@@ -157,13 +230,11 @@ func (w *Watch) run(ctx context.Context, q Query) {
 		}
 		index = blocking.NextIndex(index, meta.LastIndex)
 
-		if haveState && reflect.DeepEqual(instances, lastSent) {
+		if haveState && slices.EqualFunc(instances, lastSent, equalInstance) {
 			continue // the index moved but nothing we expose changed
 		}
 		haveState = true
-		w.mu.Lock()
-		w.current = instances
-		w.mu.Unlock()
+		w.current.Store(newSnapshot(instances))
 		w.once.Do(func() { close(w.ready) })
 
 		// Coalesce: if the previous event is still unread, take it back and
@@ -190,19 +261,20 @@ func (w *Watch) publishErr(err error) {
 // diff builds an event from the consumer's last view to the new state.
 func diff(prev, cur []ServiceInstance) Event {
 	ev := Event{Instances: cloneAll(cur)}
-	old := make(map[string]ServiceInstance, len(prev))
-	for _, i := range prev {
-		old[key(i)] = i
+	old := make(map[instanceKey]int, len(prev)) // key -> index in prev
+	for n, i := range prev {
+		old[key(i)] = n
 	}
 	for _, i := range cur {
-		p, ok := old[key(i)]
+		k := key(i)
+		n, ok := old[k]
 		switch {
 		case !ok:
 			ev.Added = append(ev.Added, i.clone())
-		case !reflect.DeepEqual(p, i):
+		case !equalInstance(prev[n], i):
 			ev.Changed = append(ev.Changed, i.clone())
 		}
-		delete(old, key(i))
+		delete(old, k)
 	}
 	for _, i := range prev {
 		if _, gone := old[key(i)]; gone {
@@ -212,8 +284,11 @@ func diff(prev, cur []ServiceInstance) Event {
 	return ev
 }
 
-// key identifies an instance across nodes (IDs are unique per node only).
-func key(i ServiceInstance) string { return i.Node.Name + "/" + i.ID }
+// instanceKey identifies an instance across nodes (IDs are unique per node
+// only). A struct key needs no string concatenation per lookup.
+type instanceKey struct{ node, id string }
+
+func key(i ServiceInstance) instanceKey { return instanceKey{i.Node.Name, i.ID} }
 
 func sleep(ctx context.Context, d time.Duration) error {
 	t := time.NewTimer(d)

@@ -1,0 +1,5 @@
+# Prettier formats the Markdown documentation (tools/lint.sh runs it in
+# Docker). Prose keeps its line breaks, so diffs stay small; tables, lists,
+# emphasis and spacing are normalised.
+proseWrap: preserve
+printWidth: 80

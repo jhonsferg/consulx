@@ -13,6 +13,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"math/rand/v2"
 	"sync"
 	"sync/atomic"
@@ -50,47 +51,76 @@ type PickerFunc func([]discovery.ServiceInstance) discovery.ServiceInstance
 // Pick implements Picker.
 func (f PickerFunc) Pick(i []discovery.ServiceInstance) discovery.ServiceInstance { return f(i) }
 
+// indexPicker is implemented by the built-in pickers. Selecting an index
+// instead of an instance lets NextEndpoint return the endpoint formatted in
+// advance, without copying the instance.
+type indexPicker interface {
+	pickIndex(list []discovery.ServiceInstance) int
+}
+
 // RoundRobin cycles through instances in a stable order (sorted by ID).
 func RoundRobin() Strategy {
-	return StrategyFunc(func() Picker {
-		var n atomic.Uint64
-		return PickerFunc(func(list []discovery.ServiceInstance) discovery.ServiceInstance {
-			return list[(n.Add(1)-1)%uint64(len(list))]
-		})
-	})
+	return StrategyFunc(func() Picker { return new(roundRobin) })
+}
+
+type roundRobin struct{ n atomic.Uint64 }
+
+func (p *roundRobin) pickIndex(list []discovery.ServiceInstance) int {
+	return int((p.n.Add(1) - 1) % uint64(len(list))) // #nosec G115 -- the modulo is below len(list)
+}
+
+// Pick implements Picker.
+func (p *roundRobin) Pick(list []discovery.ServiceInstance) discovery.ServiceInstance {
+	return list[p.pickIndex(list)]
 }
 
 // Random picks a uniformly random instance.
 func Random() Strategy {
-	return StrategyFunc(func() Picker {
-		return PickerFunc(func(list []discovery.ServiceInstance) discovery.ServiceInstance {
-			return list[rand.IntN(len(list))] // #nosec G404 -- load balancing needs no cryptographic randomness
-		})
-	})
+	return StrategyFunc(func() Picker { return random{} })
+}
+
+type random struct{}
+
+func (random) pickIndex(list []discovery.ServiceInstance) int {
+	return rand.IntN(len(list)) // #nosec G404 -- load balancing needs no cryptographic randomness
+}
+
+// Pick implements Picker.
+func (p random) Pick(list []discovery.ServiceInstance) discovery.ServiceInstance {
+	return list[p.pickIndex(list)]
 }
 
 // Weighted picks randomly in proportion to ServiceInstance.Weight: the
 // Consul "Passing" weight, or the "Warning" weight for instances in warning.
 // Instances with weight 0 are skipped unless every weight is 0.
 func Weighted() Strategy {
-	return StrategyFunc(func() Picker {
-		return PickerFunc(func(list []discovery.ServiceInstance) discovery.ServiceInstance {
-			total := 0
-			for _, i := range list {
-				total += max(i.Weight(), 0)
-			}
-			if total == 0 {
-				return list[rand.IntN(len(list))] // #nosec G404 -- load balancing needs no cryptographic randomness
-			}
-			r := rand.IntN(total) // #nosec G404 -- load balancing needs no cryptographic randomness
-			for _, i := range list {
-				if r -= max(i.Weight(), 0); r < 0 {
-					return i
-				}
-			}
-			return list[len(list)-1]
-		})
-	})
+	return StrategyFunc(func() Picker { return weighted{} })
+}
+
+type weighted struct{}
+
+// pickIndex walks the list by index: ranging by value would copy every
+// instance, which dominated the cost with many instances.
+func (weighted) pickIndex(list []discovery.ServiceInstance) int {
+	total := 0
+	for k := range list {
+		total += max(list[k].Weight(), 0)
+	}
+	if total == 0 {
+		return rand.IntN(len(list)) // #nosec G404 -- load balancing needs no cryptographic randomness
+	}
+	r := rand.IntN(total) // #nosec G404 -- load balancing needs no cryptographic randomness
+	for k := range list {
+		if r -= max(list[k].Weight(), 0); r < 0 {
+			return k
+		}
+	}
+	return len(list) - 1
+}
+
+// Pick implements Picker.
+func (p weighted) Pick(list []discovery.ServiceInstance) discovery.ServiceInstance {
+	return list[p.pickIndex(list)]
 }
 
 // ErrClosed is returned by Next after Close.
@@ -145,37 +175,53 @@ type Balancer struct {
 	janitor sync.Once
 	wg      sync.WaitGroup // the janitor goroutine
 
+	// services is an immutable map swapped as a whole, so Next reads it
+	// without taking a lock: with many goroutines calling Next for the same
+	// service, a shared mutex would serialise all of them. mu guards the
+	// swaps (create, release, close) and is never taken on the hot path.
 	mu       sync.Mutex
-	services map[string]*entry
-	closed   bool
+	services atomic.Pointer[map[string]*entry]
+	closed   atomic.Bool
 }
 
+// entry is the state kept for one service.
 type entry struct {
-	watch    *discovery.Watch
-	picker   Picker
-	lastUsed time.Time // guarded by Balancer.mu
+	watch  *discovery.Watch
+	picker Picker
 
-	mu       sync.Mutex
-	last     []discovery.ServiceInstance // last non-empty list
-	lastSeen time.Time
+	// lastUsed is when Next last picked this service, as nanoseconds from
+	// Balancer.now. Written on every call, read by the janitor.
+	lastUsed atomic.Int64
+
+	// Stale grace state. last holds the most recent non-empty snapshot,
+	// stored only when the snapshot actually changes, and lastSeen is when a
+	// non-empty list was last observed. Both are read and written with single
+	// atomic operations, so the grace bookkeeping adds no lock to Next.
+	last     atomic.Pointer[discovery.Snapshot]
+	lastSeen atomic.Int64
 }
 
-// withGrace returns list, or the last non-empty list while it is younger
-// than grace. Lists are immutable watch snapshots, so keeping one is safe.
-func (e *entry) withGrace(list []discovery.ServiceInstance, grace time.Duration, now time.Time) []discovery.ServiceInstance {
+// withGrace returns s, or the last non-empty snapshot while it is younger
+// than grace. Snapshots are immutable, so keeping one is safe. Concurrent
+// callers race benignly on last, whose last writer wins, just as the
+// locking version did.
+func (e *entry) withGrace(s discovery.Snapshot, grace time.Duration, now time.Time) discovery.Snapshot {
 	if grace <= 0 {
-		return list
+		return s
 	}
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	if len(list) > 0 {
-		e.last, e.lastSeen = list, now
-		return list
+	if s.Len() > 0 {
+		e.lastSeen.Store(now.UnixNano())
+		if last := e.last.Load(); last == nil || !last.Same(s) {
+			kept := s // copied here, so only a change allocates
+			e.last.Store(&kept)
+		}
+		return s
 	}
-	if e.last != nil && now.Sub(e.lastSeen) <= grace {
-		return e.last
+	last := e.last.Load()
+	if last == nil || now.Sub(time.Unix(0, e.lastSeen.Load())) > grace {
+		return s
 	}
-	return list
+	return *last
 }
 
 // New creates a Balancer. Its watches stop when ctx is done or Close is
@@ -184,11 +230,11 @@ func New(ctx context.Context, d *discovery.Client, s Strategy, opts ...Option) *
 	ctx, cancel := context.WithCancel(ctx)
 	b := &Balancer{
 		ctx: ctx, cancel: cancel, d: d, strategy: s,
-		query:    func(d *discovery.Client, svc string) discovery.Query { return d.Service(svc) },
-		now:      time.Now,
-		idle:     DefaultIdleTimeout,
-		services: map[string]*entry{},
+		query: func(d *discovery.Client, svc string) discovery.Query { return d.Service(svc) },
+		now:   time.Now,
+		idle:  DefaultIdleTimeout,
 	}
+	b.services.Store(&map[string]*entry{})
 	for _, o := range opts {
 		o(b)
 	}
@@ -197,30 +243,16 @@ func New(ctx context.Context, d *discovery.Client, s Strategy, opts ...Option) *
 
 // Next returns an instance of service. The first call for a service starts
 // its watch and waits (bounded by ctx) for the initial state. It returns
-// discovery.ErrServiceNotFound when no instance is available.
+// discovery.ErrServiceNotFound when no instance is available. The instance
+// is an independent copy; when only its address is needed, NextEndpoint
+// avoids copying it.
 func (b *Balancer) Next(ctx context.Context, service string) (discovery.ServiceInstance, error) {
-	var e *entry
-	for attempt := 0; ; attempt++ {
-		var err error
-		if e, err = b.entry(service); err != nil {
-			return discovery.ServiceInstance{}, err
-		}
-		select {
-		case <-e.watch.Ready():
-		case <-ctx.Done():
-			return discovery.ServiceInstance{}, ctx.Err()
-		case <-e.watch.Done():
-			// Released as idle between entry and here: watch it again.
-			if attempt == 0 && !b.isClosed() {
-				continue
-			}
-			return discovery.ServiceInstance{}, ErrClosed
-		}
-		break
+	e, snap, err := b.current(ctx, service)
+	if err != nil {
+		return discovery.ServiceInstance{}, err
 	}
-	now := b.now()
-	inst, ok := e.watch.Pick(func(list []discovery.ServiceInstance) (discovery.ServiceInstance, bool) {
-		if list = e.withGrace(list, b.grace, now); len(list) == 0 {
+	inst, ok := snap.Pick(func(list []discovery.ServiceInstance) (discovery.ServiceInstance, bool) {
+		if len(list) == 0 {
 			return discovery.ServiceInstance{}, false
 		}
 		return e.picker.Pick(list), true
@@ -231,22 +263,121 @@ func (b *Balancer) Next(ctx context.Context, service string) (discovery.ServiceI
 	return inst, nil
 }
 
-func (b *Balancer) entry(service string) (*entry, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	if b.closed || b.ctx.Err() != nil {
+// NextEndpoint is Next for callers that only need where to connect: it
+// returns the address, port, scheme, "host:port" and URL of the selected
+// instance, formatted when the watch received the state, so a call costs no
+// allocation. It follows the same strategy, grace period and errors as Next.
+func (b *Balancer) NextEndpoint(ctx context.Context, service string) (discovery.Endpoint, error) {
+	e, snap, err := b.current(ctx, service)
+	if err != nil {
+		return discovery.Endpoint{}, err
+	}
+	// A custom picker may return an instance that is not in the list.
+	var foreign discovery.ServiceInstance
+	isForeign := false
+	ep, ok := snap.PickEndpoint(func(list []discovery.ServiceInstance) (int, bool) {
+		if len(list) == 0 {
+			return 0, false
+		}
+		i, found := pickIndex(e.picker, list)
+		if !found {
+			foreign, isForeign = i.inst, true
+		}
+		return i.index, found
+	})
+	switch {
+	case isForeign:
+		return foreign.Endpoint(), nil
+	case !ok:
+		return discovery.Endpoint{}, fmt.Errorf("%w: %s", discovery.ErrServiceNotFound, service)
+	}
+	return ep, nil
+}
+
+// current returns the entry of service and the snapshot to pick from, with
+// the stale grace applied, waiting for the first state of a new watch.
+func (b *Balancer) current(ctx context.Context, service string) (*entry, discovery.Snapshot, error) {
+	now := b.now() // one clock reading per call, shared by entry and grace
+	for attempt := 0; ; attempt++ {
+		e, err := b.entry(service, now)
+		if err != nil {
+			return nil, discovery.Snapshot{}, err
+		}
+		select {
+		case <-e.watch.Ready():
+			return e, e.withGrace(e.watch.Current(), b.grace, now), nil
+		case <-ctx.Done():
+			return nil, discovery.Snapshot{}, ctx.Err()
+		case <-e.watch.Done():
+			// Released as idle between entry and here: watch it again.
+			if attempt == 0 && !b.isClosed() {
+				continue
+			}
+			return nil, discovery.Snapshot{}, ErrClosed
+		}
+	}
+}
+
+// picked is the result of pickIndex: the index of the selected instance, or
+// the instance itself when a custom picker returned one not in the list.
+type picked struct {
+	index int
+	inst  discovery.ServiceInstance
+}
+
+// pickIndex selects with p and returns the index of the selection. Built-in
+// pickers select by index directly; for others the returned instance is
+// located in the list, and found is false when it is not there.
+func pickIndex(p Picker, list []discovery.ServiceInstance) (res picked, found bool) {
+	if ip, ok := p.(indexPicker); ok {
+		return picked{index: ip.pickIndex(list)}, true
+	}
+	inst := p.Pick(list)
+	for k := range list {
+		if list[k].ID == inst.ID && list[k].Node.Name == inst.Node.Name &&
+			list[k].Address == inst.Address && list[k].Port == inst.Port {
+			return picked{index: k}, true
+		}
+	}
+	return picked{inst: inst}, false
+}
+
+// entry returns the entry of service, starting its watch on first use. now is
+// recorded as the last use, so the hot path reads the clock only once.
+func (b *Balancer) entry(service string, now time.Time) (*entry, error) {
+	if b.closed.Load() || b.ctx.Err() != nil {
 		return nil, ErrClosed
 	}
-	if e, ok := b.services[service]; ok {
-		e.lastUsed = b.now()
+	if cur := b.services.Load(); cur != nil {
+		if e, ok := (*cur)[service]; ok {
+			e.lastUsed.Store(now.UnixNano())
+			return e, nil
+		}
+	}
+	// First use of this service: create the entry under the lock.
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.closed.Load() || b.ctx.Err() != nil {
+		return nil, ErrClosed
+	}
+	var current map[string]*entry
+	if cur := b.services.Load(); cur != nil {
+		current = *cur
+	}
+	if e, ok := current[service]; ok { // created while we waited for the lock
+		e.lastUsed.Store(now.UnixNano())
 		return e, nil
 	}
 	w, err := b.query(b.d, service).Watch(b.ctx)
 	if err != nil {
 		return nil, err
 	}
-	e := &entry{watch: w, picker: b.strategy.NewPicker(), lastUsed: b.now()}
-	b.services[service] = e
+	e := &entry{watch: w, picker: b.strategy.NewPicker()}
+	e.lastUsed.Store(now.UnixNano())
+	next := make(map[string]*entry, len(current)+1)
+	maps.Copy(next, current)
+	next[service] = e
+	b.services.Store(&next)
 	if b.idle > 0 {
 		b.janitor.Do(func() { b.wg.Go(b.releaseIdle) })
 	}
@@ -266,13 +397,20 @@ func (b *Balancer) releaseIdle() {
 			return
 		case <-ticker.C:
 		}
-		now := b.now()
+		now := b.now().UnixNano()
 		var idle []*entry
 		b.mu.Lock()
-		for name, e := range b.services {
-			if now.Sub(e.lastUsed) >= b.idle {
-				idle = append(idle, e)
-				delete(b.services, name)
+		if cur := b.services.Load(); cur != nil {
+			next := make(map[string]*entry, len(*cur))
+			for name, e := range *cur {
+				if now-e.lastUsed.Load() >= b.idle.Nanoseconds() {
+					idle = append(idle, e)
+					continue
+				}
+				next[name] = e
+			}
+			if len(idle) > 0 {
+				b.services.Store(&next)
 			}
 		}
 		b.mu.Unlock()
@@ -283,26 +421,28 @@ func (b *Balancer) releaseIdle() {
 }
 
 func (b *Balancer) isClosed() bool {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.closed || b.ctx.Err() != nil
+	return b.closed.Load() || b.ctx.Err() != nil
 }
 
 // watched returns the number of watched services (tests).
 func (b *Balancer) watched() int {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return len(b.services)
+	if cur := b.services.Load(); cur != nil {
+		return len(*cur)
+	}
+	return 0
 }
 
 // Close stops every watch and waits for them to exit.
 func (b *Balancer) Close() error {
 	b.mu.Lock()
-	b.closed = true
+	b.closed.Store(true)
 	b.cancel()
-	list := make([]*entry, 0, len(b.services))
-	for _, e := range b.services {
-		list = append(list, e)
+	var list []*entry
+	if cur := b.services.Load(); cur != nil {
+		list = make([]*entry, 0, len(*cur))
+		for _, e := range *cur {
+			list = append(list, e)
+		}
 	}
 	b.mu.Unlock()
 	for _, e := range list {

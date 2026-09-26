@@ -51,7 +51,7 @@ errors.
 ## Timeouts
 
 | Setting                              | Default  | Notes                                      |
-|--------------------------------------|----------|--------------------------------------------|
+| ------------------------------------ | -------- | ------------------------------------------ |
 | `Consul.DialTimeout`                 | 5s       | TCP connect                                |
 | `Consul.RequestTimeout`              | 10s      | every non-blocking request                 |
 | `Consul.WaitTime`                    | 5m       | blocking queries (Consul's maximum is 10m) |

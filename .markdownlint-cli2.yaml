@@ -1,0 +1,15 @@
+# markdownlint rules for the documentation (tools/lint.sh runs it in Docker).
+config:
+  default: true
+  MD010:
+    code_blocks: false # Go samples are indented with tabs, as gofmt does
+  MD013: false # line length: prose keeps its own breaks
+  MD024:
+    siblings_only: true # CHANGELOG repeats Added/Changed under each release
+  MD033:
+    allowed_elements: [div, a, img, br, p, strong, picture, source, sub, sup, details, summary]
+  MD041: false # README opens with a centered HTML header
+ignores:
+  - ".claude/**"
+  - ".bench/**"
+  - "**/node_modules/**"

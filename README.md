@@ -2,7 +2,7 @@
 
 # ConsulX
 
-**The Go-native Consul integration layer for production microservices**
+<p><strong>The Go-native Consul integration layer for production microservices</strong></p>
 
 Registration · Health checks · Service discovery · Load balancing · Distributed configuration
 
@@ -122,27 +122,27 @@ flowchart LR
 
 ## 2. Features
 
-| Area | What you get |
-|------|--------------|
-| Registration | Agent API registration, stable instance IDs, automatic metadata, tags, weights, tagged and multi-port addresses, maintenance mode, registration hook for Connect and proxy settings |
-| Health | Injected `/health`, `/health/live`, `/health/ready` in front of any router; HTTP, TCP, gRPC or TTL checks; component registry with UP / DEGRADED / DOWN |
-| Reliability | Retry with capped exponential backoff and jitter, fail-fast option, loss detection, automatic re-registration, crash protection with `DeregisterCriticalServiceAfter`, bounded timeouts |
-| Lifecycle | `Run(ctx)`, `Start`, `Stop`, `Done`, `Errors`, `State`; no signal handling; no goroutine leaks |
-| Discovery | Health-aware immutable query builder, watches with coalesced events |
-| Load balancing | Round robin, random and weighted strategies backed by watches; survives agent restarts |
-| Configuration | Spring-compatible KV layout with profiles, key/value, YAML or JSON, struct binding with defaults and required keys, validated live updates |
-| Security | ACL token and token file, TLS and mutual TLS, secrets redacted in logs and serialisation |
-| Observability | `log/slog`, metrics interface, Prometheus and OpenTelemetry adapters, request tracing |
-| Compatibility | Consul 1.20 to 2.0 tested; version-gated features rejected before the agent does |
+| Area           | What you get                                                                                                                                                                            |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Registration   | Agent API registration, stable instance IDs, automatic metadata, tags, weights, tagged and multi-port addresses, maintenance mode, registration hook for Connect and proxy settings     |
+| Health         | Injected `/health`, `/health/live`, `/health/ready` in front of any router; HTTP, TCP, gRPC or TTL checks; component registry with UP / DEGRADED / DOWN                                 |
+| Reliability    | Retry with capped exponential backoff and jitter, fail-fast option, loss detection, automatic re-registration, crash protection with `DeregisterCriticalServiceAfter`, bounded timeouts |
+| Lifecycle      | `Run(ctx)`, `Start`, `Stop`, `Done`, `Errors`, `State`; no signal handling; no goroutine leaks                                                                                          |
+| Discovery      | Health-aware immutable query builder, watches with coalesced events                                                                                                                     |
+| Load balancing | Round robin, random and weighted strategies backed by watches; survives agent restarts                                                                                                  |
+| Configuration  | Spring-compatible KV layout with profiles, key/value, YAML or JSON, struct binding with defaults and required keys, validated live updates                                              |
+| Security       | ACL token and token file, TLS and mutual TLS, secrets redacted in logs and serialisation                                                                                                |
+| Observability  | `log/slog`, metrics interface, Prometheus and OpenTelemetry adapters, request tracing                                                                                                   |
+| Compatibility  | Consul 1.20 to 2.0 tested; version-gated features rejected before the agent does                                                                                                        |
 
 ## 3. Requirements and compatibility
 
-| Requirement | Supported |
-|-------------|-----------|
-| Go | 1.26.7 or later (the minimum of the official Consul client); tested on 1.26 and 1.27 |
-| Consul | 1.20, 1.21, 1.22 and 2.0, Community Edition; tested against real agents |
-| Consul Enterprise | namespaces and admin partitions supported, not integration tested |
-| Operating systems | any platform supported by Go; CI runs on Linux |
+| Requirement       | Supported                                                                            |
+| ----------------- | ------------------------------------------------------------------------------------ |
+| Go                | 1.26.7 or later (the minimum of the official Consul client); tested on 1.26 and 1.27 |
+| Consul            | 1.20, 1.21, 1.22 and 2.0, Community Edition; tested against real agents              |
+| Consul Enterprise | namespaces and admin partitions supported, not integration tested                    |
+| Operating systems | any platform supported by Go; CI runs on Linux                                       |
 
 Consul 2.0 is a version-numbering change, not a new HTTP API. Optional
 fields (multi-port services, IPv6 addresses) are gated by the detected agent
@@ -251,14 +251,14 @@ stateDiagram-v2
     Stopped --> [*]
 ```
 
-| Call | Behaviour |
-|------|-----------|
-| `Run(ctx)` | `Start`, wait for `ctx`, then `Stop` bounded by `ShutdownTimeout`; returns `nil` on normal shutdown |
-| `Start(ctx)` | registers (according to `FailFast`) and launches the runtime; `ctx` bounds the start-up only |
-| `Stop(ctx)` | marks readiness DOWN, stops background tasks, deregisters, closes connections; idempotent |
-| `Done()` | closed after `Stop` |
-| `Errors()` | asynchronous errors (outages, failed re-registration); never blocks; closed after `Stop` |
-| `State()` | `idle`, `starting`, `running`, `degraded`, `stopping`, `stopped` |
+| Call         | Behaviour                                                                                           |
+| ------------ | --------------------------------------------------------------------------------------------------- |
+| `Run(ctx)`   | `Start`, wait for `ctx`, then `Stop` bounded by `ShutdownTimeout`; returns `nil` on normal shutdown |
+| `Start(ctx)` | registers (according to `FailFast`) and launches the runtime; `ctx` bounds the start-up only        |
+| `Stop(ctx)`  | marks readiness DOWN, stops background tasks, deregisters, closes connections; idempotent           |
+| `Done()`     | closed after `Stop`                                                                                 |
+| `Errors()`   | asynchronous errors (outages, failed re-registration); never blocks; closed after `Stop`            |
+| `State()`    | `idle`, `starting`, `running`, `degraded`, `stopping`, `stopped`                                    |
 
 ConsulX never handles OS signals: pass a context from `signal.NotifyContext`.
 A `Client` is single-use; create a new one to start again.
@@ -268,13 +268,13 @@ A `Client` is single-use; create a new one to start again.
 Configuration comes from five layers, lowest precedence first. A later layer
 overrides only the fields it sets.
 
-| # | Layer | How |
-|---|-------|-----|
-| 1 | Defaults | built in, see [10.5 Defaults](#105-defaults) |
-| 2 | File | `consulx.LoadConfig("consulx.yaml")` (YAML or JSON) |
-| 3 | Environment | `CONSUL_*` (official names) and `CONSULX_*`, see [10.4](#104-environment-variables) |
-| 4 | `consulx.Config` values | passed to `New` like any option |
-| 5 | Functional options | `consulx.WithServiceName(...)`, applied in argument order |
+| #   | Layer                   | How                                                                                 |
+| --- | ----------------------- | ----------------------------------------------------------------------------------- |
+| 1   | Defaults                | built in, see [10.5 Defaults](#105-defaults)                                        |
+| 2   | File                    | `consulx.LoadConfig("consulx.yaml")` (YAML or JSON)                                 |
+| 3   | Environment             | `CONSUL_*` (official names) and `CONSULX_*`, see [10.4](#104-environment-variables) |
+| 4   | `consulx.Config` values | passed to `New` like any option                                                     |
+| 5   | Functional options      | `consulx.WithServiceName(...)`, applied in argument order                           |
 
 Zero values in a `Config` do not override earlier layers. Boolean fields whose
 default is `true` are pointers (`consulx.Bool(false)`), and options such as
@@ -309,14 +309,14 @@ The application reports component health to `consul.Health()`, a
 `health.Registry`. Each component is `UP`, `DEGRADED` or `DOWN` and belongs to
 the readiness scope (default), the liveness scope, or both.
 
-| Endpoint | Includes | UP | DEGRADED | DOWN |
-|----------|----------|----|----------|------|
-| `/health` | every component | 200 | 429 | 503 |
-| `/health/live` | liveness components | 200 | 429 | 503 |
-| `/health/ready` | readiness components; DOWN while shutting down | 200 | 429 | 503 |
+| Endpoint        | Includes                                       | UP  | DEGRADED | DOWN |
+| --------------- | ---------------------------------------------- | --- | -------- | ---- |
+| `/health`       | every component                                | 200 | 429      | 503  |
+| `/health/live`  | liveness components                            | 200 | 429      | 503  |
+| `/health/ready` | readiness components; DOWN while shutting down | 200 | 429      | 503  |
 
-Consul maps 2xx to *passing*, 429 to *warning* and anything else to
-*critical*. By default Consul checks `/health/ready`. When no endpoint is
+Consul maps 2xx to _passing_, 429 to _warning_ and anything else to
+_critical_. By default Consul checks `/health/ready`. When no endpoint is
 injected, ConsulX registers a TTL check and reports the readiness status
 itself every TTL/3.
 
@@ -422,10 +422,15 @@ defer w.Close()
 for ev := range w.Events() {
 	log.Printf("%d instances (+%d -%d ~%d)", len(ev.Instances), len(ev.Added), len(ev.Removed), len(ev.Changed))
 }
+
+// Or read the latest state at any time; reading it allocates nothing.
+snap := w.Current()
+eps := snap.Endpoints() // "host:port" and URLs, formatted once per change
 ```
 
 Queries are immutable values: every method returns a copy, so a base query
-can be shared. `AnyStatus()` includes unhealthy instances; inspect
+can be shared. The metadata and filter expression is built once, when the
+query is defined, not on every request. `AnyStatus()` includes unhealthy instances; inspect
 `inst.Status` before using them.
 
 ### 7.4 Client-side load balancing
@@ -435,7 +440,15 @@ lb := consul.Balancer(balancer.RoundRobin())    // or balancer.Random(), balance
 
 inst, err := lb.Next(ctx, "payments")           // memory read, backed by a watch
 resp, err := http.Get(inst.URL() + "/charges")
+
+ep, err := lb.NextEndpoint(ctx, "payments")     // zero allocations: address only
+resp, err = http.Get(ep.URL + "/charges")
 ```
+
+`Next` returns an independent copy of the whole instance (metadata, tags,
+checks). When the call only needs where to connect, `NextEndpoint` returns
+the ID, address, port, scheme, `HostPort` and `URL`, formatted once per
+change of the service, so it allocates nothing on the request path.
 
 Options: `balancer.WithQuery` (custom query per service), `WithStaleGrace`
 (keep the last instances while an agent restart empties the list; 10 s by
@@ -486,13 +499,13 @@ for err := range w.Errors() {   // rejected changes and failed reloads
 }
 ```
 
-| Setting | Default | Notes |
-|---------|---------|-------|
-| Profile | `Service.Environment` | `KVConfig.Profiles` for several |
-| Format | key/value | `KVConfig.Format: "yaml"` or `"json"` reads one document under `data` |
-| Supported types | | strings, bools, ints, uints, floats, `time.Duration`, `encoding.TextUnmarshaler`, slices, maps, nested and embedded structs, pointers |
-| Tags | | `consul:"name"`, `consul:"name,required"`, `consul:"-"`, `default:"value"`; untagged fields match `max-conns`, `max_conns` or `MaxConns` |
-| Typos | ignored | `KVConfig.ErrorUnused: true` reports unknown keys |
+| Setting         | Default               | Notes                                                                                                                                    |
+| --------------- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| Profile         | `Service.Environment` | `KVConfig.Profiles` for several                                                                                                          |
+| Format          | key/value             | `KVConfig.Format: "yaml"` or `"json"` reads one document under `data`                                                                    |
+| Supported types |                       | strings, bools, ints, uints, floats, `time.Duration`, `encoding.TextUnmarshaler`, slices, maps, nested and embedded structs, pointers    |
+| Tags            |                       | `consul:"name"`, `consul:"name,required"`, `consul:"-"`, `default:"value"`; untagged fields match `max-conns`, `max_conns` or `MaxConns` |
+| Typos           | ignored               | `KVConfig.ErrorUnused: true` reports unknown keys                                                                                        |
 
 ### 7.6 Maintenance mode
 
@@ -654,11 +667,11 @@ lb := consul.Balancer(balancer.Weighted(),
 	}))
 
 proxy := &httputil.ReverseProxy{Rewrite: func(r *httputil.ProxyRequest) {
-	inst, err := lb.Next(r.In.Context(), "orders-api")
+	ep, err := lb.NextEndpoint(r.In.Context(), "orders-api") // no allocation per request
 	if err != nil {
 		return // answered by the proxy's ErrorHandler
 	}
-	target, _ := url.Parse(inst.URL())
+	target, _ := url.Parse(ep.URL)
 	r.SetURL(target)
 }}
 ```
@@ -831,7 +844,7 @@ With a node-local Consul agent (DaemonSet), expose the pod and host IPs:
 
 ```yaml
 spec:
-  terminationGracePeriodSeconds: 30        # above ShutdownTimeout + drain time
+  terminationGracePeriodSeconds: 30 # above ShutdownTimeout + drain time
   containers:
     - name: orders-api
       env:
@@ -894,28 +907,28 @@ and partitions against Community Edition before sending them.
 
 ### 10.1 Functional options
 
-| Option | Purpose |
-|--------|---------|
-| `WithConsulAddress(addr)` | agent address: `host:port`, `http(s)://host:port`, `unix:///path` |
-| `WithDatacenter(dc)` | datacenter for every request |
-| `WithNamespace(ns)`, `WithPartition(p)` | Consul Enterprise tenancy |
-| `WithToken(t)`, `WithTokenFile(path)` | ACL token; the file wins |
-| `WithTLS(TLSConfig)` | TLS towards Consul (enables https) |
-| `WithRequestTimeout(d)` | bound of every non-blocking request |
-| `WithHTTPClient(c)` | custom `http.Client` (tracing, proxies) |
-| `WithAPIConfig(fn)` | adjust the official client configuration |
-| `WithServer(srv)` | integrate an `*http.Server` (port, scheme, health injection) |
-| `WithListener(ln)` | take the port from a listener (port 0, gRPC) |
-| `WithServiceName`, `WithServiceID`, `WithServiceAddress`, `WithServicePort` | service identity |
-| `WithAddressResolver(r)` | replace the address resolution chain |
-| `WithTags(...)`, `WithMetadata(map)` | service tags and metadata |
-| `WithRegistrationHook(fn)` | edit the registration before it is sent |
-| `WithAutoHealth()`, `WithHealthEndpoints(e)`, `WithHealth(h)` | health endpoints and check |
-| `WithDeregisterCriticalServiceAfter(d)` | crash protection timeout (negative disables) |
-| `WithRetry(RetryConfig)`, `WithRetryPolicy(p)` | retry behaviour |
-| `WithAutoRegister(bool)`, `WithFailFast(bool)`, `WithShutdownTimeout(d)` | lifecycle |
-| `WithKVConfig(KVConfig)` | distributed configuration layout |
-| `WithLogger(l)`, `WithMetrics(m)` | observability |
+| Option                                                                      | Purpose                                                           |
+| --------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| `WithConsulAddress(addr)`                                                   | agent address: `host:port`, `http(s)://host:port`, `unix:///path` |
+| `WithDatacenter(dc)`                                                        | datacenter for every request                                      |
+| `WithNamespace(ns)`, `WithPartition(p)`                                     | Consul Enterprise tenancy                                         |
+| `WithToken(t)`, `WithTokenFile(path)`                                       | ACL token; the file wins                                          |
+| `WithTLS(TLSConfig)`                                                        | TLS towards Consul (enables https)                                |
+| `WithRequestTimeout(d)`                                                     | bound of every non-blocking request                               |
+| `WithHTTPClient(c)`                                                         | custom `http.Client` (tracing, proxies)                           |
+| `WithAPIConfig(fn)`                                                         | adjust the official client configuration                          |
+| `WithServer(srv)`                                                           | integrate an `*http.Server` (port, scheme, health injection)      |
+| `WithListener(ln)`                                                          | take the port from a listener (port 0, gRPC)                      |
+| `WithServiceName`, `WithServiceID`, `WithServiceAddress`, `WithServicePort` | service identity                                                  |
+| `WithAddressResolver(r)`                                                    | replace the address resolution chain                              |
+| `WithTags(...)`, `WithMetadata(map)`                                        | service tags and metadata                                         |
+| `WithRegistrationHook(fn)`                                                  | edit the registration before it is sent                           |
+| `WithAutoHealth()`, `WithHealthEndpoints(e)`, `WithHealth(h)`               | health endpoints and check                                        |
+| `WithDeregisterCriticalServiceAfter(d)`                                     | crash protection timeout (negative disables)                      |
+| `WithRetry(RetryConfig)`, `WithRetryPolicy(p)`                              | retry behaviour                                                   |
+| `WithAutoRegister(bool)`, `WithFailFast(bool)`, `WithShutdownTimeout(d)`    | lifecycle                                                         |
+| `WithKVConfig(KVConfig)`                                                    | distributed configuration layout                                  |
+| `WithLogger(l)`, `WithMetrics(m)`                                           | observability                                                     |
 
 ### 10.2 Config struct
 
@@ -982,45 +995,45 @@ kv:
 
 ### 10.4 Environment variables
 
-| Variable | Field |
-|----------|-------|
-| `CONSUL_HTTP_ADDR` | `Consul.Address` |
-| `CONSUL_HTTP_TOKEN`, `CONSUL_HTTP_TOKEN_FILE` | `Consul.Token`, `Consul.TokenFile` |
-| `CONSUL_HTTP_AUTH` | `Consul.HTTPAuth` (`user:password`) |
-| `CONSUL_HTTP_SSL`, `CONSUL_HTTP_SSL_VERIFY` | https, certificate verification |
-| `CONSUL_CACERT`, `CONSUL_CAPATH`, `CONSUL_CLIENT_CERT`, `CONSUL_CLIENT_KEY`, `CONSUL_TLS_SERVER_NAME` | `Consul.TLS` |
-| `CONSUL_NAMESPACE`, `CONSUL_PARTITION` | Enterprise tenancy |
-| `CONSULX_DATACENTER` | `Consul.Datacenter` |
-| `CONSULX_SERVICE_NAME`, `CONSULX_SERVICE_ID` | service identity |
-| `CONSULX_SERVICE_ADDRESS`, `CONSULX_SERVICE_PORT` | registered address and port |
-| `CONSULX_SERVICE_TAGS` | comma-separated tags |
-| `CONSULX_SERVICE_META` | `key=value,key=value` |
-| `CONSULX_SERVICE_VERSION`, `CONSULX_ENVIRONMENT`, `CONSULX_ZONE` | metadata; the environment is also the KV profile |
-| `CONSULX_PROFILES` | comma-separated KV profiles |
-| `CONSULX_HEALTH_ENABLED`, `CONSULX_HEALTH_INTERVAL` | health endpoints and interval |
-| `CONSULX_DEREGISTER_CRITICAL_AFTER` | crash protection timeout |
-| `CONSULX_FAIL_FAST` | fail-fast start-up |
+| Variable                                                                                              | Field                                            |
+| ----------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
+| `CONSUL_HTTP_ADDR`                                                                                    | `Consul.Address`                                 |
+| `CONSUL_HTTP_TOKEN`, `CONSUL_HTTP_TOKEN_FILE`                                                         | `Consul.Token`, `Consul.TokenFile`               |
+| `CONSUL_HTTP_AUTH`                                                                                    | `Consul.HTTPAuth` (`user:password`)              |
+| `CONSUL_HTTP_SSL`, `CONSUL_HTTP_SSL_VERIFY`                                                           | https, certificate verification                  |
+| `CONSUL_CACERT`, `CONSUL_CAPATH`, `CONSUL_CLIENT_CERT`, `CONSUL_CLIENT_KEY`, `CONSUL_TLS_SERVER_NAME` | `Consul.TLS`                                     |
+| `CONSUL_NAMESPACE`, `CONSUL_PARTITION`                                                                | Enterprise tenancy                               |
+| `CONSULX_DATACENTER`                                                                                  | `Consul.Datacenter`                              |
+| `CONSULX_SERVICE_NAME`, `CONSULX_SERVICE_ID`                                                          | service identity                                 |
+| `CONSULX_SERVICE_ADDRESS`, `CONSULX_SERVICE_PORT`                                                     | registered address and port                      |
+| `CONSULX_SERVICE_TAGS`                                                                                | comma-separated tags                             |
+| `CONSULX_SERVICE_META`                                                                                | `key=value,key=value`                            |
+| `CONSULX_SERVICE_VERSION`, `CONSULX_ENVIRONMENT`, `CONSULX_ZONE`                                      | metadata; the environment is also the KV profile |
+| `CONSULX_PROFILES`                                                                                    | comma-separated KV profiles                      |
+| `CONSULX_HEALTH_ENABLED`, `CONSULX_HEALTH_INTERVAL`                                                   | health endpoints and interval                    |
+| `CONSULX_DEREGISTER_CRITICAL_AFTER`                                                                   | crash protection timeout                         |
+| `CONSULX_FAIL_FAST`                                                                                   | fail-fast start-up                               |
 
 Malformed values are reported by `New`, never ignored.
 
 ### 10.5 Defaults
 
-| Setting | Default | Reason |
-|---------|---------|--------|
-| Consul address | `127.0.0.1:8500` | node-local agent |
-| Dial / request timeout | 5 s / 10 s | bounded requests |
-| Blocking query wait | 5 min | Consul's default |
-| Health endpoints | `/health`, `/health/live`, `/health/ready` when enabled | |
-| Check | HTTP on readiness with endpoints, TTL without | |
-| Check interval / timeout | 10 s / 5 s | timeout below the interval |
-| TTL | 30 s, heartbeat every 10 s | tolerates two lost updates |
-| Deregister critical after | 1 min | Consul's minimum |
-| Retry | 500 ms to 30 s, ×2, jitter, unlimited | fast recovery, no reconnect storms |
-| Auto-register / deregister on shutdown | on / on | |
-| Fail fast | off | a Consul outage does not stop a healthy service |
-| Start / shutdown timeout | 30 s / 10 s | |
-| Balancer stale grace / idle timeout | 10 s / 15 min | agent restarts, dynamic service names |
-| KV layout | `config/`, context `application`, separator `,` | Spring Cloud Consul compatible |
+| Setting                                | Default                                                 | Reason                                          |
+| -------------------------------------- | ------------------------------------------------------- | ----------------------------------------------- |
+| Consul address                         | `127.0.0.1:8500`                                        | node-local agent                                |
+| Dial / request timeout                 | 5 s / 10 s                                              | bounded requests                                |
+| Blocking query wait                    | 5 min                                                   | Consul's default                                |
+| Health endpoints                       | `/health`, `/health/live`, `/health/ready` when enabled |                                                 |
+| Check                                  | HTTP on readiness with endpoints, TTL without           |                                                 |
+| Check interval / timeout               | 10 s / 5 s                                              | timeout below the interval                      |
+| TTL                                    | 30 s, heartbeat every 10 s                              | tolerates two lost updates                      |
+| Deregister critical after              | 1 min                                                   | Consul's minimum                                |
+| Retry                                  | 500 ms to 30 s, ×2, jitter, unlimited                   | fast recovery, no reconnect storms              |
+| Auto-register / deregister on shutdown | on / on                                                 |                                                 |
+| Fail fast                              | off                                                     | a Consul outage does not stop a healthy service |
+| Start / shutdown timeout               | 30 s / 10 s                                             |                                                 |
+| Balancer stale grace / idle timeout    | 10 s / 15 min                                           | agent restarts, dynamic service names           |
+| KV layout                              | `config/`, context `application`, separator `,`         | Spring Cloud Consul compatible                  |
 
 ## 11. Observability reference
 
@@ -1034,64 +1047,71 @@ Tokens, TLS keys and KV values are never logged.
 
 **Metrics** (`WithMetrics`, no-op by default):
 
-| Metric | Type |
-|--------|------|
-| `consulx_register_total`, `consulx_register_errors_total` | counter |
-| `consulx_deregister_total`, `consulx_deregister_errors_total` | counter |
-| `consulx_discovery_requests_total`, `consulx_discovery_errors_total` | counter, label `operation` |
-| `consulx_consul_requests_total`, `consulx_consul_request_errors_total` | counter, label `operation` |
-| `consulx_consul_request_duration_seconds` | histogram |
-| `consulx_reconnect_total` | counter |
-| `consulx_health_status` | gauge: 1 up, 0.5 degraded, 0 down |
-| `consulx_runtime_state` | gauge: 0 idle … 5 stopped |
-| `consulx_config_reload_total`, `consulx_config_reload_errors_total` | counter |
-| `consulx_errors_dropped_total` | counter |
+| Metric                                                                 | Type                              |
+| ---------------------------------------------------------------------- | --------------------------------- |
+| `consulx_register_total`, `consulx_register_errors_total`              | counter                           |
+| `consulx_deregister_total`, `consulx_deregister_errors_total`          | counter                           |
+| `consulx_discovery_requests_total`, `consulx_discovery_errors_total`   | counter, label `operation`        |
+| `consulx_consul_requests_total`, `consulx_consul_request_errors_total` | counter, label `operation`        |
+| `consulx_consul_request_duration_seconds`                              | histogram                         |
+| `consulx_reconnect_total`                                              | counter                           |
+| `consulx_health_status`                                                | gauge: 1 up, 0.5 degraded, 0 down |
+| `consulx_runtime_state`                                                | gauge: 0 idle … 5 stopped         |
+| `consulx_config_reload_total`, `consulx_config_reload_errors_total`    | counter                           |
+| `consulx_errors_dropped_total`                                         | counter                           |
 
 ## 12. Errors reference
 
 All errors wrap their cause and work with `errors.Is` / `errors.As`.
 
-| Error | Meaning |
-|-------|---------|
-| `ErrInvalidConfiguration` (`*ConfigError`) | invalid configuration; `New` reports every problem at once |
-| `ErrConsulUnavailable` | the agent could not be reached |
-| `ErrRegistrationFailed`, `ErrDeregistrationFailed` | the agent refused or failed the operation |
-| `ErrUnsupportedFeature` (`*UnsupportedFeatureError`) | the connected agent version or edition lacks a feature |
-| `ErrServiceNotFound` | no healthy instance matched a discovery query or balancer call |
-| `ErrNotRegistered` | maintenance or deregistration before registration |
-| `ErrAlreadyStarted`, `ErrAlreadyStopped`, `ErrNotStarted` | lifecycle misuse |
-| `kvconfig.ErrInvalid`, `kvconfig.ErrRequired`, `*kvconfig.BindError` | configuration rejected, missing key, wrong type |
-| `balancer.ErrClosed` | the balancer or client was stopped |
+| Error                                                                | Meaning                                                        |
+| -------------------------------------------------------------------- | -------------------------------------------------------------- |
+| `ErrInvalidConfiguration` (`*ConfigError`)                           | invalid configuration; `New` reports every problem at once     |
+| `ErrConsulUnavailable`                                               | the agent could not be reached                                 |
+| `ErrRegistrationFailed`, `ErrDeregistrationFailed`                   | the agent refused or failed the operation                      |
+| `ErrUnsupportedFeature` (`*UnsupportedFeatureError`)                 | the connected agent version or edition lacks a feature         |
+| `ErrServiceNotFound`                                                 | no healthy instance matched a discovery query or balancer call |
+| `ErrNotRegistered`                                                   | maintenance or deregistration before registration              |
+| `ErrAlreadyStarted`, `ErrAlreadyStopped`, `ErrNotStarted`            | lifecycle misuse                                               |
+| `kvconfig.ErrInvalid`, `kvconfig.ErrRequired`, `*kvconfig.BindError` | configuration rejected, missing key, wrong type                |
+| `balancer.ErrClosed`                                                 | the balancer or client was stopped                             |
 
 ## 13. Performance
 
-| Path | Runs | Cost |
-|------|------|------|
-| Health endpoint wrapper | every inbound request | 11 ns, 0 allocations |
-| `Balancer.Next` | every outbound call | ~0.2–0.4 µs, 2–4 allocations, independent of the number of instances |
-| Configuration binding | every reload | ~4 µs, 904 B |
+| Path                                            | Runs                             | Cost                                                                 |
+| ----------------------------------------------- | -------------------------------- | -------------------------------------------------------------------- |
+| Health endpoint wrapper                         | every inbound request            | 11 ns, 0 allocations                                                 |
+| `Balancer.Next`                                 | every outbound call              | ~0.2–0.4 µs, 2–4 allocations, independent of the number of instances |
+| `Balancer.NextEndpoint`                         | every outbound call              | ~0.1 µs (weighted: ~0.25 µs with 100 instances), **0 allocations**   |
+| Metric calls (no-op, Prometheus, OpenTelemetry) | registration, heartbeat, queries | 0 allocations                                                        |
+| Running client (registered, TTL check)          | permanent                        | ~105 KB of heap, 4 goroutines, no CPU while idle                     |
+| Configuration binding                           | every reload                     | ~4 µs, 904 B                                                         |
 
 No goroutine or heap growth under churn (`TestNoLeakUnderChurn` in CI).
-Details and methodology: [docs/performance.md](docs/performance.md).
+Details and methodology: [docs/performance.md](docs/performance.md). The
+complete benchmark suite (every feature, CPU and memory profiles, the
+footprint a running client keeps from its service) runs locally only:
+[docs/benchmarks.md](docs/benchmarks.md).
 
 ## 14. Documentation
 
-| Document | Content |
-|----------|---------|
-| [docs/production.md](docs/production.md) | production checklist, TLS, ACL, timeouts, failure modes, Kubernetes |
-| [docs/compatibility.md](docs/compatibility.md) | Consul versions, capability matrix and evidence |
-| [docs/architecture.md](docs/architecture.md) | design and internals |
-| [docs/performance.md](docs/performance.md) | benchmarks, memory and leak testing |
-| [docs/frameworks.md](docs/frameworks.md) | net/http, Gin, Echo, Chi, Fiber |
-| [docs/migration.md](docs/migration.md) | from hand-written `consul/api` code and from Spring Cloud Consul |
-| [docs/status.md](docs/status.md) | definition of done, verification in a real cluster, limitations |
-| [docs/release.md](docs/release.md) | CI, security scanning and automatic releases |
-| [docs/decisions/](docs/decisions/) | architecture decision records |
-| [examples/](examples/) | runnable programs: basic, gin, echo, chi, discovery, config, health |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | how to propose changes, checks, commit and pull request conventions |
-| [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | community standards (Contributor Covenant 2.1) |
-| [SECURITY.md](SECURITY.md) | supported versions and private vulnerability reporting |
-| [.github/SUPPORT.md](.github/SUPPORT.md) | where to ask questions and report problems |
+| Document                                       | Content                                                                |
+| ---------------------------------------------- | ---------------------------------------------------------------------- |
+| [docs/production.md](docs/production.md)       | production checklist, TLS, ACL, timeouts, failure modes, Kubernetes    |
+| [docs/compatibility.md](docs/compatibility.md) | Consul versions, capability matrix and evidence                        |
+| [docs/architecture.md](docs/architecture.md)   | design and internals                                                   |
+| [docs/performance.md](docs/performance.md)     | hot-path costs, memory and leak testing                                |
+| [docs/benchmarks.md](docs/benchmarks.md)       | local benchmark suite, profiling and the footprint of a running client |
+| [docs/frameworks.md](docs/frameworks.md)       | net/http, Gin, Echo, Chi, Fiber                                        |
+| [docs/migration.md](docs/migration.md)         | from hand-written `consul/api` code and from Spring Cloud Consul       |
+| [docs/status.md](docs/status.md)               | definition of done, verification in a real cluster, limitations        |
+| [docs/release.md](docs/release.md)             | CI, security scanning and automatic releases                           |
+| [docs/decisions/](docs/decisions/)             | architecture decision records                                          |
+| [examples/](examples/)                         | runnable programs: basic, gin, echo, chi, discovery, config, health    |
+| [CONTRIBUTING.md](CONTRIBUTING.md)             | how to propose changes, checks, commit and pull request conventions    |
+| [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)       | community standards (Contributor Covenant 2.1)                         |
+| [SECURITY.md](SECURITY.md)                     | supported versions and private vulnerability reporting                 |
+| [.github/SUPPORT.md](.github/SUPPORT.md)       | where to ask questions and report problems                             |
 
 ## 15. Development
 
@@ -1099,6 +1119,7 @@ Details and methodology: [docs/performance.md](docs/performance.md).
 go test ./...                                         # unit tests, no Consul needed
 go test -race ./...                                   # race detector
 cd integration && CONSUL_VERSION=1.22 go test ./...   # real Consul via Testcontainers
+tools/bench.sh                                        # benchmarks, local only
 ```
 
 Contributions are welcome: read [CONTRIBUTING.md](CONTRIBUTING.md) and the

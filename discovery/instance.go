@@ -86,6 +86,36 @@ type Check struct {
 	Type      string
 }
 
+// Endpoint is where an instance is reached. It holds only strings and
+// numbers, so copies are independent without copying anything: the
+// balancer and watches hand out endpoints computed once per state change,
+// and returning one costs no allocation.
+type Endpoint struct {
+	// ID is the instance ID and Node the name of its node; together they
+	// identify the instance.
+	ID   string
+	Node string
+	// Address, Port and Scheme are the fields of the instance.
+	Address string
+	Port    int
+	Scheme  string
+	// HostPort is "address:port", with IPv6 addresses bracketed.
+	HostPort string
+	// URL is "scheme://address:port".
+	URL string
+}
+
+// Endpoint returns the endpoint of the instance. It formats HostPort and
+// URL on every call; Watch.Current and Balancer.NextEndpoint return
+// endpoints formatted in advance.
+func (i ServiceInstance) Endpoint() Endpoint {
+	hp := i.HostPort()
+	return Endpoint{
+		ID: i.ID, Node: i.Node.Name, Address: i.Address, Port: i.Port, Scheme: i.Scheme,
+		HostPort: hp, URL: i.Scheme + "://" + hp,
+	}
+}
+
 // HostPort returns "address:port", bracketing IPv6 addresses.
 func (i ServiceInstance) HostPort() string {
 	return net.JoinHostPort(i.Address, strconv.Itoa(i.Port))
@@ -115,6 +145,11 @@ func (i ServiceInstance) Weight() int {
 }
 
 // fromEntry converts a health entry into an instance.
+//
+// The entry comes straight out of the official client, which decodes every
+// response into fresh objects and shares them with nobody, so its slices and
+// maps are adopted instead of copied: the instance owns them from here, and
+// the caller still receives an instance nobody else can observe.
 func fromEntry(e *api.ServiceEntry) ServiceInstance {
 	s, n := e.Service, e.Node
 	inst := ServiceInstance{
@@ -123,23 +158,26 @@ func fromEntry(e *api.ServiceEntry) ServiceInstance {
 		Address:    cmp.Or(s.Address, n.Address),
 		Port:       s.Port,
 		Scheme:     "http",
-		Tags:       slices.Clone(s.Tags),
-		Meta:       maps.Clone(s.Meta),
+		Tags:       s.Tags,
+		Meta:       s.Meta,
 		Weights:    Weights{Passing: s.Weights.Passing, Warning: s.Weights.Warning},
 		Datacenter: cmp.Or(s.Datacenter, n.Datacenter),
 		Namespace:  s.Namespace,
 		Partition:  s.Partition,
 		Node: Node{
 			ID: n.ID, Name: n.Node, Address: n.Address, Datacenter: n.Datacenter,
-			TaggedAddresses: maps.Clone(n.TaggedAddresses), Meta: maps.Clone(n.Meta),
+			TaggedAddresses: n.TaggedAddresses, Meta: n.Meta,
 		},
 		Status: Status(e.Checks.AggregatedStatus()),
 	}
 	if s.Meta["secure"] == "true" {
 		inst.Scheme = "https"
 	}
-	for _, p := range s.Ports {
-		inst.Ports = append(inst.Ports, Port{Name: p.Name, Port: p.Port, Default: p.Default})
+	if len(s.Ports) > 0 {
+		inst.Ports = make([]Port, 0, len(s.Ports))
+		for _, p := range s.Ports {
+			inst.Ports = append(inst.Ports, Port{Name: p.Name, Port: p.Port, Default: p.Default})
+		}
 	}
 	if inst.Port == 0 {
 		for _, p := range s.Ports {
@@ -154,18 +192,45 @@ func fromEntry(e *api.ServiceEntry) ServiceInstance {
 			inst.TaggedAddresses[k] = TaggedAddress{Address: v.Address, Port: v.Port}
 		}
 	}
-	for _, c := range e.Checks {
-		inst.Checks = append(inst.Checks, Check{
-			ID: c.CheckID, Name: c.Name, Status: Status(c.Status), Output: c.Output,
-			ServiceID: c.ServiceID, Type: c.Type,
-		})
+	if len(e.Checks) > 0 {
+		inst.Checks = make([]Check, 0, len(e.Checks))
+		for _, c := range e.Checks {
+			inst.Checks = append(inst.Checks, Check{
+				ID: c.CheckID, Name: c.Name, Status: Status(c.Status), Output: c.Output,
+				ServiceID: c.ServiceID, Type: c.Type,
+			})
+		}
 	}
 	return inst
 }
 
-// sortInstances orders instances by ID for stable snapshots and diffs.
+// sortInstances orders instances by ID for stable snapshots and diffs. The
+// comparison never builds a key string: it runs inside pdqsort on every
+// fetch, where copying both keys per comparison is pure overhead.
 func sortInstances(list []ServiceInstance) {
-	slices.SortFunc(list, func(a, b ServiceInstance) int { return cmp.Compare(a.ID+"\x00"+a.Node.Name, b.ID+"\x00"+b.Node.Name) })
+	slices.SortFunc(list, func(a, b ServiceInstance) int {
+		if c := cmp.Compare(a.ID, b.ID); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.Node.Name, b.Node.Name)
+	})
+}
+
+// equalInstance reports whether a and b hold the same values. It replaces
+// reflect.DeepEqual on the watch path, which runs for every instance of
+// every response: the typed comparison allocates nothing and treats nil
+// and empty collections alike, so they never produce a spurious event.
+// TestEqualInstanceCoversEveryField fails when a field is added to
+// ServiceInstance or Node without being compared here.
+func equalInstance(a, b ServiceInstance) bool {
+	return a.ID == b.ID && a.Name == b.Name && a.Address == b.Address && a.Port == b.Port &&
+		a.Scheme == b.Scheme && a.Weights == b.Weights && a.Datacenter == b.Datacenter &&
+		a.Namespace == b.Namespace && a.Partition == b.Partition && a.Status == b.Status &&
+		a.Node.ID == b.Node.ID && a.Node.Name == b.Node.Name && a.Node.Address == b.Node.Address &&
+		a.Node.Datacenter == b.Node.Datacenter &&
+		slices.Equal(a.Ports, b.Ports) && slices.Equal(a.Tags, b.Tags) && slices.Equal(a.Checks, b.Checks) &&
+		maps.Equal(a.Meta, b.Meta) && maps.Equal(a.TaggedAddresses, b.TaggedAddresses) &&
+		maps.Equal(a.Node.TaggedAddresses, b.Node.TaggedAddresses) && maps.Equal(a.Node.Meta, b.Node.Meta)
 }
 
 // clone returns a deep copy, so callers can never mutate shared snapshots.

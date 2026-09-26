@@ -6,12 +6,77 @@ contain breaking changes, always listed under "Breaking".
 
 ## [Unreleased]
 
+### Added
+
+- `balancer.Balancer.NextEndpoint`: returns where to connect (ID, node,
+  address, port, scheme, `HostPort` and `URL`) with no allocation per call,
+  96 ns with any number of instances under round robin. The values are
+  formatted once per change of the service. `Next` keeps returning an
+  independent copy of the whole instance.
+- `discovery.Endpoint`, `discovery.ServiceInstance.Endpoint` and
+  `discovery.Snapshot` (from `Watch.Current`): an immutable state of a
+  watch whose `PickEndpoint` selects an endpoint in 8 ns without
+  allocating, plus `Len`, `Same`, `Pick`, `Instances` and `Endpoints`.
+
+### Changed
+
+- Discovery: converting a Consul health entry adopts the maps and slices
+  the client already decodes instead of cloning them: one instance went
+  from 464 B and 4 allocations to 96 B and 1 in less than half the time,
+  and a full query of 20 instances allocates 64 objects fewer (884 to
+  820).
+- The balancer and the discovery watch publish their state through
+  atomic pointers instead of shared locks, so `Balancer.Next` and
+  `discovery.Watch.Pick` never contend with each other, a selection
+  reads the clock once and stale grace is kept without a lock. With 32
+  concurrent callers `Next` runs at 231 ns per call, the same as
+  single-threaded; putting the locks back on the same machine measured
+  268 ns per call.
+- Readiness probes allocate three fewer objects per check (41 to 38,
+  3,731 B to 3,345 B).
+- Instance lists are sorted by comparing identifiers directly instead of
+  building a temporary key string.
+- Metric calls no longer allocate: the core builds its label sets once, the
+  Prometheus adapter caches its series (70 ns and 1 allocation to 35 ns
+  and none with a label) and the OpenTelemetry adapter caches its
+  attribute sets (266 ns and 5 allocations to 154 ns and none).
+- The weighted strategy walks instances by index instead of copying each
+  one: `Next` with 100 instances went from 2.9 µs to 0.7 µs. The built-in
+  strategies select by index.
+- Watch events compare instances with a typed comparison instead of
+  `reflect.DeepEqual` and match them by a struct key: an event for one
+  change among 20 instances went from 340 allocations to 89 and three
+  times faster.
+- The metadata and filter expression of a query is built when the query is
+  defined instead of on every request (21 allocations to 1).
+- `Client.State` reads an atomic value instead of taking a read-write
+  lock, so concurrent readers no longer contend.
+- The host name is read once per process instead of on every
+  registration (10 µs to 1 µs per service definition).
+- Health responses share their header values, and probes keep in-flight
+  checks in the component list: 33 to 28 allocations per readiness poll.
+
 ### Project
 
 - Community health files: contributing guide, Code of Conduct (Contributor
   Covenant 2.1), security policy with private vulnerability reporting,
   support guide, pull request template, issue forms (bug report, feature
   request, question, documentation) and code owners.
+- Benchmark suite: stale-grace, concurrent-selection and full-query
+  benchmarks, with recorded baselines in docs/performance.md.
+- Local benchmark suite covering every feature (client construction,
+  configuration, health endpoints and probes, registration, heartbeats,
+  lifecycle, discovery queries and watches, load balancing, KV
+  configuration, binding, internal helpers and the contrib adapters),
+  with the steady-state footprint of a running client (live heap,
+  goroutines) and comparisons against the official client for every
+  request to Consul. The benchmarks sit behind the `bench` build tag, so
+  CI never runs them; `tools/bench.sh` runs them, compares results with
+  benchstat and profiles CPU and memory. See docs/benchmarks.md.
+- Containerised formatting and linting (`tools/lint.sh`): Prettier and
+  markdownlint-cli2 for Markdown, `golangci-lint fmt` and `run` for every
+  module, shellcheck and actionlint, with pinned versions. Every Markdown
+  file was formatted with it.
 
 ## [0.2.0] - 2026-09-25
 

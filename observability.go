@@ -40,6 +40,30 @@ const (
 	MetricErrorsDroppedTotal       = "consulx_errors_dropped_total"
 )
 
+// Label sets ConsulX passes to Metrics. They are built once: a Label literal
+// in a variadic call escapes through the Metrics interface and allocates on
+// every call, a package-level slice passed with ... does not.
+// Implementations must therefore treat labels as read-only.
+var (
+	labelsRegister   = []Label{{"operation", "register"}}
+	labelsDeregister = []Label{{"operation", "deregister"}}
+
+	// discoveryLabels holds the operations reported by the discovery client.
+	discoveryLabels = map[string][]Label{
+		"query":    {{"operation", "query"}},
+		"watch":    {{"operation", "watch"}},
+		"services": {{"operation", "services"}},
+	}
+)
+
+// operationLabels returns the label set of a discovery operation.
+func operationLabels(op string) []Label {
+	if l, ok := discoveryLabels[op]; ok {
+		return l
+	}
+	return []Label{{"operation", op}}
+}
+
 type noopMetrics struct{}
 
 func (noopMetrics) IncCounter(string, ...Label)                     {}

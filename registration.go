@@ -97,7 +97,7 @@ func (c *Client) serviceID(port int) string {
 			c.generatedID = serviceid.Random(s.Name)
 			return
 		}
-		host, _ := os.Hostname()
+		host, _ := hostname()
 		c.generatedID = serviceid.HostnamePort(s.Name, host, port)
 	})
 	return c.generatedID
@@ -156,13 +156,13 @@ func (c *Client) buildMeta(ep endpoint) map[string]string {
 		meta["language"] = "go"
 		meta["go_version"] = runtime.Version()
 		meta["consulx_version"] = libraryVersion()
-		if host, err := os.Hostname(); err == nil {
+		if host, err := hostname(); err == nil {
 			meta["hostname"] = host
 		}
 	}
-	for k, v := range map[string]string{"version": s.Version, "environment": s.Environment, "zone": s.Zone} {
-		if v != "" {
-			meta[k] = v
+	for _, kv := range [...][2]string{{"version", s.Version}, {"environment", s.Environment}, {"zone", s.Zone}} {
+		if kv[1] != "" {
+			meta[kv[0]] = kv[1]
 		}
 	}
 	maps.Copy(meta, s.Meta)
@@ -264,14 +264,14 @@ func (c *Client) register(ctx context.Context) error {
 	}
 
 	c.log.Debug("service registration started", slog.String("service_id", reg.ID))
-	c.metrics.IncCounter(MetricConsulRequestsTotal, Label{"operation", "register"})
+	c.metrics.IncCounter(MetricConsulRequestsTotal, labelsRegister...)
 	start := time.Now()
 	opts := api.ServiceRegisterOpts{ReplaceExistingChecks: true}.WithContext(ctx)
 	err = c.api.Agent().ServiceRegisterOpts(reg, opts)
-	c.metrics.ObserveDuration(MetricConsulRequestDuration, time.Since(start), Label{"operation", "register"})
+	c.metrics.ObserveDuration(MetricConsulRequestDuration, time.Since(start), labelsRegister...)
 	if err != nil {
 		c.metrics.IncCounter(MetricRegisterErrorsTotal)
-		c.metrics.IncCounter(MetricConsulRequestErrorsTotal, Label{"operation", "register"})
+		c.metrics.IncCounter(MetricConsulRequestErrorsTotal, labelsRegister...)
 		return c.opError(ErrRegistrationFailed, err)
 	}
 	c.metrics.IncCounter(MetricRegisterTotal)
@@ -303,10 +303,10 @@ func (c *Client) deregister(ctx context.Context) error {
 	}
 	c.log.Info("service deregistration started", slog.String("service_id", cur.ServiceID))
 	q := (&api.QueryOptions{}).WithContext(ctx)
-	c.metrics.IncCounter(MetricConsulRequestsTotal, Label{"operation", "deregister"})
+	c.metrics.IncCounter(MetricConsulRequestsTotal, labelsDeregister...)
 	if err := c.api.Agent().ServiceDeregisterOpts(cur.ServiceID, q); err != nil && !isStatus(err, http.StatusNotFound) {
 		c.metrics.IncCounter(MetricDeregisterErrorsTotal)
-		c.metrics.IncCounter(MetricConsulRequestErrorsTotal, Label{"operation", "deregister"})
+		c.metrics.IncCounter(MetricConsulRequestErrorsTotal, labelsDeregister...)
 		return c.opError(ErrDeregistrationFailed, err)
 	}
 	c.reg.markLost()
@@ -439,3 +439,7 @@ var libVersion = sync.OnceValue(func() string {
 
 // libraryVersion returns the ConsulX module version from build info.
 func libraryVersion() string { return libVersion() }
+
+// hostname is read once: os.Hostname is a system call, and the value is
+// part of every registration and of generated service IDs.
+var hostname = sync.OnceValues(os.Hostname)

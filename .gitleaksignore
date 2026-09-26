@@ -1,0 +1,4 @@
+# False positive: a Kubernetes-style host name in a benchmark
+# (internal/serviceid/bench_test.go), later replaced by a low-entropy value.
+# The fingerprint names the one commit where it appears.
+a0adc982c8c250e3beb2913c5de6230d2e0684c0:internal/serviceid/bench_test.go:generic-api-key:27

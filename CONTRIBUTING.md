@@ -30,11 +30,11 @@ Security problems must **not** be reported in public issues: follow the
 
 ## 2. Development setup
 
-| Tool | Version | Used for |
-|------|---------|----------|
-| Go | 1.26.7 or later | building and testing |
-| Docker | recent | integration tests (Testcontainers) and the race detector on machines without a C toolchain |
-| golangci-lint | v2.14.0 | static analysis (`.golangci.yml`) |
+| Tool          | Version         | Used for                                                                                   |
+| ------------- | --------------- | ------------------------------------------------------------------------------------------ |
+| Go            | 1.26.7 or later | building and testing                                                                       |
+| Docker        | recent          | integration tests (Testcontainers) and the race detector on machines without a C toolchain |
+| golangci-lint | v2.14.0         | static analysis (`.golangci.yml`)                                                          |
 
 ```sh
 git clone https://github.com/jhonsferg/consulx.git
@@ -50,15 +50,16 @@ docker run -d --name consul -p 8500:8500 hashicorp/consul:1.22 agent -dev "-clie
 
 ## 3. Repository layout
 
-| Path | Content |
-|------|---------|
-| `/` (module `github.com/jhonsferg/consulx`) | the core library |
-| `health/`, `discovery/`, `balancer/`, `kvconfig/` | public packages |
-| `internal/` | implementation details, not part of the API |
-| `contrib/prometheus`, `contrib/otel`, `contrib/fiber` | separate modules with optional integrations |
-| `integration/` | separate module: tests against real Consul agents |
-| `examples/` | separate module: runnable examples |
-| `docs/` | architecture, compatibility, production and release documentation, ADRs |
+| Path                                                  | Content                                                                 |
+| ----------------------------------------------------- | ----------------------------------------------------------------------- |
+| `/` (module `github.com/jhonsferg/consulx`)           | the core library                                                        |
+| `health/`, `discovery/`, `balancer/`, `kvconfig/`     | public packages                                                         |
+| `internal/`                                           | implementation details, not part of the API                             |
+| `contrib/prometheus`, `contrib/otel`, `contrib/fiber` | separate modules with optional integrations                             |
+| `integration/`                                        | separate module: tests against real Consul agents                       |
+| `examples/`                                           | separate module: runnable examples                                      |
+| `tools/`                                              | local developer tooling (`bench.sh`, `lint.sh`)                         |
+| `docs/`                                               | architecture, compatibility, production and release documentation, ADRs |
 
 Every module except the root uses a `replace` directive pointing to the
 working copy, so a change is tested across modules at once.
@@ -91,6 +92,16 @@ go test -race ./...            # needs cgo; or use the container below
 golangci-lint run ./...
 ```
 
+Formatting and linting of everything (Markdown, Go in every module, shell
+scripts, workflows) run in Docker with pinned tool versions, so no local
+installation is needed:
+
+```sh
+tools/lint.sh       # check: Prettier, markdownlint, golangci-lint fmt and run, shellcheck, actionlint
+tools/lint.sh -w    # format Markdown and Go in place, then lint
+tools/lint.sh -M    # also render every Mermaid diagram
+```
+
 Race detector without a local C toolchain:
 
 ```sh
@@ -102,6 +113,16 @@ Integration tests against a real agent (need Docker):
 ```sh
 cd integration
 CONSUL_VERSION=1.22 go test ./...          # add -short to skip the slow crash test
+```
+
+Benchmarks are local only: they sit behind the `bench` build tag, so CI
+never compiles or runs them. Changes to a hot path should include a
+before/after comparison from `tools/bench.sh` in the pull request
+description (see [docs/benchmarks.md](docs/benchmarks.md)):
+
+```sh
+tools/bench.sh -p 'Next' -o .bench/before.txt                         # on main
+tools/bench.sh -p 'Next' -o .bench/after.txt -b .bench/before.txt     # on your branch
 ```
 
 CI runs all of this on every pull request, plus the integration suite against
@@ -117,14 +138,14 @@ Commits follow [Conventional Commits](https://www.conventionalcommits.org):
 <type>(<optional scope>): <imperative summary, at most 72 characters>
 ```
 
-| Type | Use for | Release effect |
-|------|---------|----------------|
-| `feat` | new functionality | minor version |
-| `fix` | bug fixes | patch version |
-| `refactor` | code changes without behaviour change, performance | patch version |
-| `docs` | documentation only | none |
-| `style` | formatting only | none |
-| `chore` | tests, dependencies, CI, tooling | none |
+| Type       | Use for                                            | Release effect |
+| ---------- | -------------------------------------------------- | -------------- |
+| `feat`     | new functionality                                  | minor version  |
+| `fix`      | bug fixes                                          | patch version  |
+| `refactor` | code changes without behaviour change, performance | patch version  |
+| `docs`     | documentation only                                 | none           |
+| `style`    | formatting only                                    | none           |
+| `chore`    | tests, dependencies, CI, tooling                   | none           |
 
 - Use the imperative mood in English: "add retry policy", not "added".
 - Append `!` after the type (`feat!:`) for breaking changes and explain them in

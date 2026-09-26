@@ -3,7 +3,7 @@
 ## From hand-written `consul/api` code
 
 | Before                                               | With ConsulX                                                               |
-|------------------------------------------------------|----------------------------------------------------------------------------|
+| ---------------------------------------------------- | -------------------------------------------------------------------------- |
 | `api.NewClient(api.DefaultConfig())`                 | `consulx.New(...)`; the official client is `consul.Raw()`                  |
 | Building `AgentServiceRegistration`, guessing the IP | `WithServer(server)`, `WithServiceName(name)`; address resolved and logged |
 | Writing a `/health` handler                          | `WithAutoHealth()` and `consul.Health().Register(...)`                     |
@@ -31,7 +31,7 @@ Steps:
 ## From Spring Cloud Consul
 
 | Spring Cloud Consul                                       | ConsulX                                                   |
-|-----------------------------------------------------------|-----------------------------------------------------------|
+| --------------------------------------------------------- | --------------------------------------------------------- |
 | `spring.application.name`                                 | `Service.Name`                                            |
 | `spring.cloud.consul.host/port/scheme`                    | `Consul.Address` / `CONSUL_HTTP_ADDR`                     |
 | `discovery.instance-id` (default `name:profiles:port`)    | `Service.ID` (default `<name>-<hostname>-<port>`)         |

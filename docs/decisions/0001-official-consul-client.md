@@ -1,7 +1,7 @@
 # ADR 0001: Build on the official Consul Go client
 
-* Status: accepted
-* Date: 2026-09-25
+- Status: accepted
+- Date: 2026-09-25
 
 ## Context
 
@@ -29,8 +29,8 @@ is bounded by its context instead.
 
 ## Consequences
 
-* New Consul capabilities are available on day one through `Raw()`.
-* The official client sometimes declares fields before agents accept them
+- New Consul capabilities are available on day one through `Raw()`.
+- The official client sometimes declares fields before agents accept them
   (see ADR 0006), so ConsulX must gate optional fields.
-* The core module inherits the client's dependencies (hclog, go-metrics,
+- The core module inherits the client's dependencies (hclog, go-metrics,
   serf types). They are already present in every Consul-integrated service.

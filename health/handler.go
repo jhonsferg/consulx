@@ -51,8 +51,8 @@ func Handler(probe ProbeFunc, opts HandlerOptions) http.Handler {
 			rep.Components = nil
 		}
 		h := w.Header()
-		h.Set("Content-Type", "application/json")
-		h.Set("Cache-Control", "no-store")
+		h["Content-Type"] = jsonContentType
+		h["Cache-Control"] = noStore
 		w.WriteHeader(StatusCode(rep.Status, opts.DegradedStatusCode))
 		if r.Method == http.MethodHead {
 			return
@@ -62,3 +62,11 @@ func Handler(probe ProbeFunc, opts HandlerOptions) http.Handler {
 		_ = json.NewEncoder(w).Encode(rep)
 	})
 }
+
+// Header values shared by every response. Assigning a prebuilt slice saves
+// the allocation Header.Set makes per value; each slice has length equal to
+// its capacity, so a later Header.Add copies it instead of writing into it.
+var (
+	jsonContentType = []string{"application/json"}
+	noStore         = []string{"no-store"}
+)

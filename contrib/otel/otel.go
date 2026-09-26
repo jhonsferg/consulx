@@ -32,6 +32,10 @@ func Meter() metric.Meter { return otel.Meter(ScopeName) }
 
 // Metrics implements consulx.Metrics with OpenTelemetry instruments. It is
 // safe for concurrent use.
+//
+// The attribute set of every label combination is built once and cached,
+// so a measurement does not rebuild it: ConsulX reports from its
+// registration, heartbeat and discovery paths.
 type Metrics struct {
 	meter metric.Meter
 
@@ -39,6 +43,7 @@ type Metrics struct {
 	counters   map[string]metric.Int64Counter
 	gauges     map[string]metric.Float64Gauge
 	histograms map[string]metric.Float64Histogram
+	options    map[attrKey]*measurementOptions
 }
 
 var _ consulx.Metrics = (*Metrics)(nil)
@@ -50,6 +55,7 @@ func NewMetrics(meter metric.Meter) *Metrics {
 		counters:   map[string]metric.Int64Counter{},
 		gauges:     map[string]metric.Float64Gauge{},
 		histograms: map[string]metric.Float64Histogram{},
+		options:    map[attrKey]*measurementOptions{},
 	}
 }
 
@@ -61,12 +67,48 @@ func instrumentName(name string) string {
 	return strings.ReplaceAll(name, "_", ".")
 }
 
-func attrs(labels []consulx.Label) metric.MeasurementOption {
+// attrKey identifies a label combination with at most one label, which
+// covers every metric ConsulX reports.
+type attrKey struct {
+	label consulx.Label
+	n     int // number of labels: 0 or 1
+}
+
+// measurementOptions are the options passed with every measurement of one
+// label combination, kept as ready-made slices so passing them allocates
+// nothing.
+type measurementOptions struct {
+	add    []metric.AddOption
+	record []metric.RecordOption
+}
+
+func newMeasurementOptions(labels []consulx.Label) *measurementOptions {
+	if len(labels) == 0 {
+		return &measurementOptions{}
+	}
 	kv := make([]attribute.KeyValue, len(labels))
 	for i, l := range labels {
 		kv[i] = attribute.String(l.Key, l.Value)
 	}
-	return metric.WithAttributes(kv...)
+	opt := metric.WithAttributeSet(attribute.NewSet(kv...))
+	return &measurementOptions{add: []metric.AddOption{opt}, record: []metric.RecordOption{opt}}
+}
+
+// optionsFor returns the options of labels. m.mu must be held.
+func (m *Metrics) optionsFor(labels []consulx.Label) *measurementOptions {
+	if len(labels) > 1 {
+		return newMeasurementOptions(labels)
+	}
+	key := attrKey{n: len(labels)}
+	if len(labels) == 1 {
+		key.label = labels[0]
+	}
+	o, ok := m.options[key]
+	if !ok {
+		o = newMeasurementOptions(labels)
+		m.options[key] = o
+	}
+	return o
 }
 
 // IncCounter implements consulx.Metrics.
@@ -81,8 +123,9 @@ func (m *Metrics) IncCounter(name string, labels ...consulx.Label) {
 		}
 		m.counters[name] = c
 	}
+	o := m.optionsFor(labels)
 	m.mu.Unlock()
-	c.Add(context.Background(), 1, attrs(labels))
+	c.Add(context.Background(), 1, o.add...)
 }
 
 // SetGauge implements consulx.Metrics.
@@ -97,8 +140,9 @@ func (m *Metrics) SetGauge(name string, value float64, labels ...consulx.Label) 
 		}
 		m.gauges[name] = g
 	}
+	o := m.optionsFor(labels)
 	m.mu.Unlock()
-	g.Record(context.Background(), value, attrs(labels))
+	g.Record(context.Background(), value, o.record...)
 }
 
 // ObserveDuration implements consulx.Metrics, in seconds.
@@ -113,8 +157,9 @@ func (m *Metrics) ObserveDuration(name string, d time.Duration, labels ...consul
 		}
 		m.histograms[name] = h
 	}
+	o := m.optionsFor(labels)
 	m.mu.Unlock()
-	h.Record(context.Background(), d.Seconds(), attrs(labels))
+	h.Record(context.Background(), d.Seconds(), o.record...)
 }
 
 // HTTPClient returns an http.Client whose transport creates a client span
