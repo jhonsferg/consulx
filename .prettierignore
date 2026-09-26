@@ -1,0 +1,7 @@
+# Only Markdown is formatted with Prettier; Go uses gofmt and goimports.
+*
+!*.md
+!*/
+.claude/
+.bench/
+vendor/
