@@ -226,12 +226,13 @@ func (r *Registry) run(ctx context.Context, scope Scope) Report {
 		name   string
 		c      *component
 		pushed Result // copied under the lock: Set may replace it
+		call   *checkCall
 	}
 	r.mu.RLock()
-	var list []named
+	list := make([]named, 0, len(r.components))
 	for name, c := range r.components {
 		if c.scope&scope != 0 {
-			list = append(list, named{name, c, c.pushed})
+			list = append(list, named{name: name, c: c, pushed: c.pushed})
 		}
 	}
 	r.mu.RUnlock()
@@ -243,23 +244,16 @@ func (r *Registry) run(ctx context.Context, scope Scope) Report {
 
 	// Start every check first so they run concurrently, then collect: the
 	// probe takes as long as the slowest check, without helper goroutines.
-	calls := make([]*checkCall, len(list))
-	for i, n := range list {
-		if n.c.checker != nil {
-			calls[i] = r.begin(ctx, n.c)
+	for i := range list {
+		if list[i].c.checker != nil {
+			list[i].call = r.begin(ctx, list[i].c)
 		}
 	}
-	results := make([]Result, len(list))
-	for i, n := range list {
-		if calls[i] == nil {
-			results[i] = n.pushed
-			continue
+	for _, n := range list {
+		res := n.pushed
+		if n.call != nil {
+			res = n.call.wait(ctx)
 		}
-		results[i] = calls[i].wait(ctx)
-	}
-
-	for i, n := range list {
-		res := results[i]
 		if res.Status == "" {
 			res.Status = StatusDown
 		}
