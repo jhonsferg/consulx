@@ -34,9 +34,9 @@ func (c *Client) Discovery() *discovery.Client {
 			Retry:          c.retry,
 			Logger:         c.log,
 			Observe: func(op string, err error) {
-				c.metrics.IncCounter(MetricDiscoveryRequestsTotal, Label{"operation", op})
+				c.metrics.IncCounter(MetricDiscoveryRequestsTotal, operationLabels(op)...)
 				if err != nil {
-					c.metrics.IncCounter(MetricDiscoveryErrorsTotal, Label{"operation", op})
+					c.metrics.IncCounter(MetricDiscoveryErrorsTotal, operationLabels(op)...)
 				}
 			},
 		})
