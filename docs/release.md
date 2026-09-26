@@ -33,7 +33,7 @@ flowchart LR
 ## Workflows
 
 | Workflow         | Trigger                                        | Jobs                                                                                                                                                                                                                                                                                                                                                                                                                  |
-|------------------|------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| ---------------- | ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ci.yml`         | pull request to `main`, push to `main`, manual | PR title check; per-module `go mod tidy`, `go vet`, golangci-lint (errcheck, staticcheck, gosec, errorlint, bodyclose, noctx, contextcheck, misspell, gofmt, goimports, ...); unit tests with the race detector on Go 1.26 and 1.27; coverage gate (80% of library statements) with a report in the job summary; examples build; integration tests against Consul 1.20, 1.21, 1.22 and 2.0; fuzzing (30 s per target) |
 | `security.yml`   | pull request, push to `main`, weekly, manual   | CodeQL (security-and-quality), govulncheck (SARIF report, gate on reachable vulnerabilities), gosec (SARIF report), gitleaks secret scanning of the full history, dependency review on pull requests (moderate severity, copyleft licences)                                                                                                                                                                           |
 | `release.yml`    | completion of `CI` or `Security` on `main`     | gate on both workflows succeeding for the commit, versioning, tags, GitHub release, proxy and pkg.go.dev notification                                                                                                                                                                                                                                                                                                 |
@@ -51,7 +51,7 @@ whatever their commit type; they are published with the next release that
 does change Go code.
 
 | Commits since the last tag                         | Bump                      | Example                          |
-|----------------------------------------------------|---------------------------|----------------------------------|
+| -------------------------------------------------- | ------------------------- | -------------------------------- |
 | only `docs`, `style`, `chore`                      | none, no release          |                                  |
 | `fix` or `refactor`                                | patch                     | v0.1.0 → v0.1.1                  |
 | `feat`                                             | minor                     | v0.1.3 → v0.2.0                  |
@@ -59,12 +59,12 @@ does change Go code.
 
 Modules and tags:
 
-| Module                         | Tag format                  | Paths considered                                                                       |
-|--------------------------------|-----------------------------|----------------------------------------------------------------------------------------|
-| `github.com/jhonsferg/consulx` | `vX.Y.Z`                    | `*.go`, `go.mod`, `go.sum` outside `contrib/`, `examples/`, `integration/`             |
-| `.../contrib/prometheus`       | `contrib/prometheus/vX.Y.Z` | `*.go`, `go.mod`, `go.sum` under `contrib/prometheus/`                                 |
-| `.../contrib/otel`             | `contrib/otel/vX.Y.Z`       | `*.go`, `go.mod`, `go.sum` under `contrib/otel/`                                       |
-| `.../contrib/fiber`            | `contrib/fiber/vX.Y.Z`      | `*.go`, `go.mod`, `go.sum` under `contrib/fiber/`                                      |
+| Module                         | Tag format                  | Paths considered                                                           |
+| ------------------------------ | --------------------------- | -------------------------------------------------------------------------- |
+| `github.com/jhonsferg/consulx` | `vX.Y.Z`                    | `*.go`, `go.mod`, `go.sum` outside `contrib/`, `examples/`, `integration/` |
+| `.../contrib/prometheus`       | `contrib/prometheus/vX.Y.Z` | `*.go`, `go.mod`, `go.sum` under `contrib/prometheus/`                     |
+| `.../contrib/otel`             | `contrib/otel/vX.Y.Z`       | `*.go`, `go.mod`, `go.sum` under `contrib/otel/`                           |
+| `.../contrib/fiber`            | `contrib/fiber/vX.Y.Z`      | `*.go`, `go.mod`, `go.sum` under `contrib/fiber/`                          |
 
 `examples` and `integration` are never published.
 
