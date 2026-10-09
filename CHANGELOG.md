@@ -8,6 +8,10 @@ contain breaking changes, always listed under "Breaking".
 
 ### Added
 
+- `balancer.WithEjection`: passive outlier ejection. An instance reported with
+  `ReportFailure` leaves the rotation for the given window while others remain.
+- `WithDrainDelay` / `LifecycleConfig.DrainDelay` / `CONSULX_DRAIN_DELAY`: `Stop`
+  waits after deregistering so discovery clients stop routing to the instance.
 - `balancer.Balancer.NextEndpoint`: returns where to connect (ID, node,
   address, port, scheme, `HostPort` and `URL`) with no allocation per call,
   96 ns with any number of instances under round robin. The values are

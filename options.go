@@ -288,6 +288,20 @@ func WithShutdownTimeout(d time.Duration) Option {
 	})
 }
 
+// WithDrainDelay makes Stop and Run wait d after a successful deregistration
+// before returning, bounded by the shutdown timeout, so discovery clients
+// stop routing to this instance before its HTTP server shuts down. See
+// LifecycleConfig.DrainDelay. Negative values are rejected.
+func WithDrainDelay(d time.Duration) Option {
+	return optionFunc(func(s *settings) error {
+		if d < 0 {
+			return &ConfigError{Field: "Lifecycle.DrainDelay", Reason: "must not be negative"}
+		}
+		s.cfg.Lifecycle.DrainDelay = d
+		return nil
+	})
+}
+
 // WithLogger sets the structured logger. The default is slog.Default().
 // A nil logger silences ConsulX.
 func WithLogger(l *slog.Logger) Option {

@@ -171,6 +171,7 @@ type Balancer struct {
 	grace    time.Duration
 	now      func() time.Time
 	idle     time.Duration
+	eject    time.Duration // passive ejection window, see WithEjection; 0 = off
 
 	janitor sync.Once
 	wg      sync.WaitGroup // the janitor goroutine
@@ -199,6 +200,19 @@ type entry struct {
 	// atomic operations, so the grace bookkeeping adds no lock to Next.
 	last     atomic.Pointer[discovery.Snapshot]
 	lastSeen atomic.Int64
+
+	// ejection holds the instances taken out of rotation by ReportFailure
+	// (see ejection.go). Untouched unless WithEjection is set.
+	ejection ejectionState
+}
+
+// ejectNow returns the clock reading used to evaluate ejections, or 0 when
+// ejection is disabled so the hot path skips both the clock and the check.
+func (b *Balancer) ejectNow() int64 {
+	if b.eject <= 0 {
+		return 0
+	}
+	return b.now().UnixNano()
 }
 
 // withGrace returns s, or the last non-empty snapshot while it is younger
@@ -251,9 +265,15 @@ func (b *Balancer) Next(ctx context.Context, service string) (discovery.ServiceI
 	if err != nil {
 		return discovery.ServiceInstance{}, err
 	}
+	now := b.ejectNow()
 	inst, ok := snap.Pick(func(list []discovery.ServiceInstance) (discovery.ServiceInstance, bool) {
 		if len(list) == 0 {
 			return discovery.ServiceInstance{}, false
+		}
+		if now != 0 {
+			if keep := e.ejection.available(list, now); keep != nil {
+				return e.picker.Pick(subset(list, keep)), true
+			}
 		}
 		return e.picker.Pick(list), true
 	})
@@ -275,9 +295,23 @@ func (b *Balancer) NextEndpoint(ctx context.Context, service string) (discovery.
 	// A custom picker may return an instance that is not in the list.
 	var foreign discovery.ServiceInstance
 	isForeign := false
+	now := b.ejectNow()
 	ep, ok := snap.PickEndpoint(func(list []discovery.ServiceInstance) (int, bool) {
 		if len(list) == 0 {
 			return 0, false
+		}
+		if now != 0 {
+			// Pick among the instances not ejected, then map the choice back
+			// to its index in the full list (the endpoints are pre-formatted
+			// per index). Only allocates while an ejection is active.
+			if keep := e.ejection.available(list, now); keep != nil {
+				i, found := pickIndex(e.picker, subset(list, keep))
+				if !found {
+					foreign, isForeign = i.inst, true
+					return 0, false
+				}
+				return keep[i.index], true
+			}
 		}
 		i, found := pickIndex(e.picker, list)
 		if !found {
