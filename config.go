@@ -295,6 +295,15 @@ type LifecycleConfig struct {
 	// ShutdownTimeout bounds deregistration during Stop and Run.
 	// Default DefaultShutdownTimeout.
 	ShutdownTimeout time.Duration `json:"shutdownTimeout" yaml:"shutdownTimeout"`
+	// DrainDelay is how long Stop (and Run) keep waiting after a successful
+	// deregistration before returning, still bounded by ShutdownTimeout.
+	// Clients discovering this service (balancers following Consul with
+	// blocking queries, DNS caches, proxies) need a moment to observe the
+	// removal; stopping the HTTP server only after DrainDelay means no new
+	// request is routed to an instance that is no longer accepting them.
+	// Call http.Server.Shutdown after Stop returns. Zero (the default) keeps
+	// the previous behaviour: Stop returns right after deregistering.
+	DrainDelay time.Duration `json:"drainDelay" yaml:"drainDelay"`
 }
 
 // Defaults. The reason behind each value is documented in
@@ -443,6 +452,7 @@ func (c *LifecycleConfig) overlay(s LifecycleConfig) {
 	set(&c.FailFast, s.FailFast)
 	set(&c.StartTimeout, s.StartTimeout)
 	set(&c.ShutdownTimeout, s.ShutdownTimeout)
+	set(&c.DrainDelay, s.DrainDelay)
 }
 
 // set assigns v to *dst when v is not the zero value.
