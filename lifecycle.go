@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 // State is the lifecycle state of a Client.
@@ -222,13 +223,37 @@ func (c *Client) Stop(ctx context.Context) error {
 }
 
 // shutdown runs the ordered shutdown steps after the runtime has stopped:
-// deregistration, bounded by ctx. If it fails (Consul unreachable), the
-// DeregisterCriticalServiceAfter timeout removes the instance later.
+// deregistration, bounded by ctx, then the drain delay. If deregistration
+// fails (Consul unreachable), the DeregisterCriticalServiceAfter timeout
+// removes the instance later and there is nothing to drain for, so the
+// delay is skipped.
 func (c *Client) shutdown(ctx context.Context) error {
 	if !*c.cfg.Lifecycle.DeregisterOnShutdown || c.reg.get().ServiceID == "" {
 		return nil
 	}
-	return c.deregister(ctx)
+	if err := c.deregister(ctx); err != nil {
+		return err
+	}
+	c.drain(ctx)
+	return nil
+}
+
+// drain waits LifecycleConfig.DrainDelay, or until ctx is done, so clients
+// following this service observe the deregistration before the caller stops
+// accepting requests. Running out of ctx is not an error: the deregistration
+// already succeeded, the drain is best effort.
+func (c *Client) drain(ctx context.Context) {
+	d := c.cfg.Lifecycle.DrainDelay
+	if d <= 0 {
+		return
+	}
+	c.log.Info("draining after deregistration", "delay", d)
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-t.C:
+	case <-ctx.Done():
+	}
 }
 
 // finish moves to the terminal state and releases resources.
