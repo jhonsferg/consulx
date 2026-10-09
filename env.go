@@ -41,6 +41,7 @@ const (
 	EnvHealthInterval  = "CONSULX_HEALTH_INTERVAL"
 	EnvDeregisterAfter = "CONSULX_DEREGISTER_CRITICAL_AFTER"
 	EnvFailFast        = "CONSULX_FAIL_FAST"
+	EnvDrainDelay      = "CONSULX_DRAIN_DELAY"
 	EnvProfiles        = "CONSULX_PROFILES"
 )
 
@@ -139,6 +140,7 @@ func configFromLookup(lookup func(string) (string, bool)) (Config, error) {
 	if b, ok := parseBool(EnvFailFast); ok {
 		c.Lifecycle.FailFast = b
 	}
+	c.Lifecycle.DrainDelay = parseDuration(EnvDrainDelay)
 	if v := get(EnvProfiles); v != "" {
 		c.KV.Profiles = splitList(v)
 	}
