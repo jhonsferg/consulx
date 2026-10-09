@@ -9,8 +9,8 @@ require (
 	github.com/go-chi/chi/v5 v5.3.2
 	github.com/hashicorp/consul/api v1.34.5
 	github.com/jhonsferg/consulx v0.0.0-00010101000000-000000000000
-	github.com/labstack/echo/v5 v5.3.1
-	github.com/moby/moby/api v1.56.0
+	github.com/labstack/echo/v5 v5.4.0
+	github.com/moby/moby/api v1.56.1
 	github.com/testcontainers/testcontainers-go v0.44.0
 )
 
