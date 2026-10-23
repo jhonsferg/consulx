@@ -1,13 +1,13 @@
 module github.com/jhonsferg/consulx/integration
 
-go 1.26.7
+go 1.26.9
 
 replace github.com/jhonsferg/consulx => ../
 
 require (
 	github.com/gin-gonic/gin v1.12.0
-	github.com/go-chi/chi/v5 v5.4.0
-	github.com/hashicorp/consul/api v1.34.5
+	github.com/go-chi/chi/v5 v5.5.0
+	github.com/hashicorp/consul/api v1.35.0
 	github.com/jhonsferg/consulx v0.0.0-00010101000000-000000000000
 	github.com/labstack/echo/v5 v5.4.0
 	github.com/moby/moby/api v1.56.1
@@ -100,7 +100,7 @@ require (
 	golang.org/x/arch v0.22.0 // indirect
 	golang.org/x/crypto v0.57.0 // indirect
 	golang.org/x/exp v0.0.0-20260908205506-85c1c2202aba // indirect
-	golang.org/x/net v0.59.0 // indirect
+	golang.org/x/net v0.60.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/text v0.42.0 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
