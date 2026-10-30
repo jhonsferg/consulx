@@ -1,9 +1,9 @@
 module github.com/jhonsferg/consulx
 
-go 1.26.7
+go 1.26.9
 
 require (
-	github.com/hashicorp/consul/api v1.34.5
+	github.com/hashicorp/consul/api v1.35.0
 	go.uber.org/goleak v1.3.0
 	go.yaml.in/yaml/v3 v3.0.5
 )
